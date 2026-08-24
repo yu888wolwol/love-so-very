@@ -333,6 +333,7 @@ export function App() {
             config={config}
             selectedSampleId={selectedSampleId}
             onSelectSample={setSelectedSampleId}
+            onToggleVisibility={handleToggleSampleVisibility}
           />
         </main>
       </div>

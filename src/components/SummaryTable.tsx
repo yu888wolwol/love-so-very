@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, SlidersHorizontal, ArrowUpDown, FileSpreadsheet, Check } from 'lucide-react';
+import { Download, SlidersHorizontal, ArrowUpDown, FileSpreadsheet, Check, Eye, EyeOff } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { ExperimentConfig, Sample } from '../types';
 
@@ -8,6 +8,7 @@ interface SummaryTableProps {
   config: ExperimentConfig;
   selectedSampleId: string;
   onSelectSample: (id: string) => void;
+  onToggleVisibility: (id: string) => void;
 }
 
 export const SummaryTable: React.FC<SummaryTableProps> = ({
@@ -15,6 +16,7 @@ export const SummaryTable: React.FC<SummaryTableProps> = ({
   config,
   selectedSampleId,
   onSelectSample,
+  onToggleVisibility,
 }) => {
   // Export Table to CSV
   const handleExportCSV = () => {
@@ -138,7 +140,23 @@ export const SummaryTable: React.FC<SummaryTableProps> = ({
               <th className="py-2.5 px-3 font-semibold text-emerald-700">Tafel Slope (mV/dec)</th>
               <th className="py-2.5 px-3 font-semibold">R²</th>
               <th className="py-2.5 px-3 font-semibold">j₀ (mA/cm²)</th>
-              <th className="py-2.5 px-4 font-semibold text-center">Status</th>
+              <th
+                className="py-2.5 px-4 font-semibold text-center cursor-pointer select-none hover:text-blue-700 transition-colors"
+                title="전체 샘플 표시/숨김 일괄 전환 (Click to toggle all)"
+                onClick={() => {
+                  const anyVisible = samples.some(s => s.visible);
+                  samples.forEach(s => {
+                    if (s.visible === anyVisible) {
+                      onToggleVisibility(s.id);
+                    }
+                  });
+                }}
+              >
+                <div className="inline-flex items-center justify-center gap-1">
+                  <span>STATUS</span>
+                  <span className="text-[10px] text-slate-400 hover:text-blue-600">⇄</span>
+                </div>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -226,17 +244,39 @@ export const SummaryTable: React.FC<SummaryTableProps> = ({
                       {metrics.j0 < 0.001 ? metrics.j0.toExponential(2) : metrics.j0.toFixed(4)}
                     </td>
 
-                    {/* Status */}
-                    <td className="py-2.5 px-4 text-center">
-                      {sample.visible ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          Active
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-500">
-                          Hidden
-                        </span>
-                      )}
+                    {/* Status Toggle Cell */}
+                    <td
+                      className="py-2.5 px-4 text-center"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleVisibility(sample.id);
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleVisibility(sample.id);
+                        }}
+                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95 select-none ${
+                          sample.visible
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100 hover:border-emerald-400'
+                            : 'bg-slate-100 text-slate-500 border border-slate-200 hover:bg-slate-200 hover:text-slate-700'
+                        }`}
+                        title={sample.visible ? '클릭하여 숨김 (Click to Hide)' : '클릭하여 표시 (Click to Show Active)'}
+                      >
+                        {sample.visible ? (
+                          <>
+                            <Eye className="w-3 h-3 text-emerald-600" />
+                            <span>Active</span>
+                          </>
+                        ) : (
+                          <>
+                            <EyeOff className="w-3 h-3 text-slate-400" />
+                            <span>Hidden</span>
+                          </>
+                        )}
+                      </button>
                     </td>
                   </tr>
                 );
