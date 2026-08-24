@@ -1,0 +1,6 @@
+{
+  "name": "ElectroData Lab - Electrochemical Analyzer",
+  "description": "Comprehensive automated electrochemical LSV, Tafel slope fitting, overpotential analysis, and research report platform with multi-file CSV/MPR support, interactive zooming, and grid visualization.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
