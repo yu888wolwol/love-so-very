@@ -160,7 +160,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept=".csv,.xlsx,.xls,.mpr,.txt,.dat"
+                accept=".csv,.xlsx,.xls,.txt,.dat"
                 className="hidden"
                 onChange={handleFileInputChange}
               />
@@ -168,10 +168,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <Upload className="w-4 h-4" />
               </div>
               <p className="text-xs font-semibold text-blue-700">
-                Excel, MPR, CSV 데이터 업로드
+                Excel (.xlsx, .xls), CSV 데이터 업로드
               </p>
               <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
-                단일/다중 곡선 엑셀 자동 분리 · Bio-Logic .mpr 지원
+                다중 곡선 엑셀 자동 5개 분리 인식 · 드래그 앤 드롭 지원
               </p>
             </div>
           </div>
