@@ -76,31 +76,37 @@ export function App() {
     let addedCount = 0;
     const newSamples: Sample[] = [];
 
+    // Check if currently only default dummy presets are present
+    const isOnlyDefaultPresets = samples.every(s => s.id.startsWith('sample-oer-') || s.id.startsWith('sample-orr-'));
+
     for (const file of files) {
       try {
-        const parsed = await parseElectrochemicalFile(file);
-        const data = calculateDataPoints(parsed.points, config, config.defaultRu, config.defaultCompensation);
-        const tafelRoi = autoDetectTafelRoi(data);
-        const metrics = calculateMetrics(data, tafelRoi, config);
-        const newColor = SAMPLE_COLORS[(samples.length + newSamples.length) % SAMPLE_COLORS.length];
+        const parsedArray = await parseElectrochemicalFile(file);
+        for (const parsed of parsedArray) {
+          const data = calculateDataPoints(parsed.points, config, config.defaultRu, config.defaultCompensation);
+          const tafelRoi = autoDetectTafelRoi(data);
+          const metrics = calculateMetrics(data, tafelRoi, config);
+          const colorIndex = (isOnlyDefaultPresets ? newSamples.length : (samples.length + newSamples.length)) % SAMPLE_COLORS.length;
+          const newColor = SAMPLE_COLORS[colorIndex];
 
-        const newSample: Sample = {
-          id: `sample-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-          name: parsed.sampleName,
-          catalystName: `${parsed.sampleName} Catalyst`,
-          color: newColor,
-          visible: true,
-          fileName: parsed.fileName,
-          fileType: parsed.fileType,
-          ruResistance: config.defaultRu,
-          irCompensationPercent: config.defaultCompensation,
-          tafelRoi,
-          metrics,
-          data,
-        };
+          const newSample: Sample = {
+            id: `sample-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            name: parsed.sampleName,
+            catalystName: `${parsed.sampleName} Catalyst`,
+            color: newColor,
+            visible: true,
+            fileName: parsed.fileName,
+            fileType: parsed.fileType,
+            ruResistance: config.defaultRu,
+            irCompensationPercent: config.defaultCompensation,
+            tafelRoi,
+            metrics,
+            data,
+          };
 
-        newSamples.push(newSample);
-        addedCount++;
+          newSamples.push(newSample);
+          addedCount++;
+        }
       } catch (err: any) {
         console.error('File parse error:', err);
         showToast(`파일 분석 실패 (${file.name}): ${err.message || '지원되지 않는 형식'}`, 'error');
@@ -108,9 +114,14 @@ export function App() {
     }
 
     if (newSamples.length > 0) {
-      setSamples(prev => [...prev, ...newSamples]);
+      if (isOnlyDefaultPresets) {
+        // Replace initial dummy presets with user's uploaded real datasets
+        setSamples(newSamples);
+      } else {
+        setSamples(prev => [...prev, ...newSamples]);
+      }
       setSelectedSampleId(newSamples[0].id);
-      showToast(`${addedCount}개의 실험 데이터 파일이 성공적으로 로드 및 분석되었습니다.`);
+      showToast(`총 ${addedCount}개의 촉매 곡선 데이터셋이 성공적으로 등록 및 분석되었습니다!`);
     }
   };
 

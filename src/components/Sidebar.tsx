@@ -168,10 +168,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <Upload className="w-4 h-4" />
               </div>
               <p className="text-xs font-semibold text-blue-700">
-                Upload .csv, .xlsx, or .mpr
+                Excel, MPR, CSV 데이터 업로드
               </p>
-              <p className="text-[10px] text-slate-500 mt-0.5">
-                Drag and drop LSV or Bio-Logic files
+              <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
+                단일/다중 곡선 엑셀 자동 분리 · Bio-Logic .mpr 지원
               </p>
             </div>
           </div>
