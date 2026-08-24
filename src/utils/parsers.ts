@@ -213,6 +213,7 @@ async function parseExcelFile(file: File, defaultSampleName: string): Promise<Pa
     }
 
     if (points.length >= 3) {
+      const cleaned = despikeAndCleanPoints(points);
       let finalName = pair.sampleName;
       if (!finalName || finalName === 'Sample') {
         finalName = detectedPairs.length > 1 ? `Sample ${i + 1}` : defaultSampleName;
@@ -222,7 +223,7 @@ async function parseExcelFile(file: File, defaultSampleName: string): Promise<Pa
         fileName: file.name,
         sampleName: finalName,
         fileType: 'xlsx',
-        points,
+        points: cleaned,
         detectedColumns: {
           potentialColName: pair.potHeader,
           currentColName: pair.curHeader,
@@ -389,11 +390,12 @@ async function parseDelimitedTextFile(file: File, defaultSampleName: string): Pr
     }
 
     if (points.length >= 3) {
+      const cleaned = despikeAndCleanPoints(points);
       results.push({
         fileName: file.name,
         sampleName: pair.label || `Sample ${i + 1}`,
         fileType: 'csv',
-        points,
+        points: cleaned,
         detectedColumns: {
           potentialColName: 'Potential (V)',
           currentColName: 'Current (mA)',
@@ -405,6 +407,65 @@ async function parseDelimitedTextFile(file: File, defaultSampleName: string): Pr
   }
 
   return results;
+}
+
+/**
+ * Intelligent filter to remove abnormal electrical spike glitches (단발성 튀는 노이즈 아티팩트 제거)
+ * and sort points monotonically.
+ */
+export function despikeAndCleanPoints(
+  rawPoints: { rawE: number; rawI: number }[]
+): { rawE: number; rawI: number }[] {
+  if (!rawPoints || rawPoints.length < 5) return rawPoints;
+
+  // 1. Sort ascending by potential
+  const sorted = [...rawPoints].sort((a, b) => a.rawE - b.rawE);
+
+  // 2. Remove isolated sharp spikes (points that suddenly jump far beyond neighbors and return)
+  const despiked: { rawE: number; rawI: number }[] = [];
+  
+  for (let i = 0; i < sorted.length; i++) {
+    const cur = sorted[i];
+
+    if (i > 0 && i < sorted.length - 1) {
+      const prev = sorted[i - 1];
+      const next = sorted[i + 1];
+      
+      const expectedNeighborAvg = (prev.rawI + next.rawI) / 2;
+      const baselineDiff = Math.abs(prev.rawI - next.rawI);
+      const spikeDev = Math.abs(cur.rawI - expectedNeighborAvg);
+
+      // Condition for sudden sharp isolated spike (e.g. 3.9 -> 161 -> 3.9)
+      const isExtremeSpike =
+        spikeDev > 3.0 && // Jump greater than 3 mA
+        spikeDev > Math.max(0.2, baselineDiff * 3.5) &&
+        Math.sign(cur.rawI - prev.rawI) === Math.sign(cur.rawI - next.rawI);
+
+      if (isExtremeSpike) {
+        // Replace spike with interpolated average of neighbors
+        despiked.push({
+          rawE: cur.rawE,
+          rawI: expectedNeighborAvg,
+        });
+        continue;
+      }
+    }
+
+    despiked.push(cur);
+  }
+
+  // 3. Deduplicate points with identical potentials (< 0.0001 V)
+  const result: { rawE: number; rawI: number }[] = [];
+  for (let i = 0; i < despiked.length; i++) {
+    if (
+      result.length === 0 ||
+      Math.abs(despiked[i].rawE - result[result.length - 1].rawE) > 1e-4
+    ) {
+      result.push(despiked[i]);
+    }
+  }
+
+  return result.length >= 3 ? result : despiked;
 }
 
 /**

@@ -87,7 +87,9 @@ export function calculateDataPoints(
 }
 
 /**
- * Calculates overpotential at a target current density (e.g. 10, 50, 100 mA/cm2) via linear interpolation
+ * Calculates overpotential at a target current density (e.g. 10, 50, 100 mA/cm2) via linear interpolation.
+ * Ignores pre-catalytic oxidation peaks (촉매 사전 산화 피크/볼록한 부분) and transient spikes by identifying
+ * the sustained catalytic reaction branch.
  */
 export function calculateInterpolatedEta(
   data: DataPoint[],
@@ -96,36 +98,103 @@ export function calculateInterpolatedEta(
 ): number | null {
   if (!data || data.length < 2) return null;
 
-  // We look for points where |currentDensity| crosses targetJ
   const absTarget = Math.abs(targetJ);
 
-  for (let i = 0; i < data.length - 1; i++) {
-    const p1 = data[i];
-    const p2 = data[i + 1];
+  // 1. Sort points by overpotential ascending
+  const sortedData = [...data].sort((a, b) => a.overpotential - b.overpotential);
+
+  // 2. Identify all upward crossing candidates where current rises through absTarget
+  interface CrossingCandidate {
+    index: number;
+    eta: number;
+    subsequentMinJ: number;
+    isSustained: boolean;
+  }
+
+  const upwardCrossings: CrossingCandidate[] = [];
+
+  for (let i = 0; i < sortedData.length - 1; i++) {
+    const p1 = sortedData[i];
+    const p2 = sortedData[i + 1];
+    const j1 = Math.abs(p1.currentDensity);
+    const j2 = Math.abs(p2.currentDensity);
+
+    // Upward crossing: current increases across targetJ
+    if (j1 <= absTarget && j2 >= absTarget && j2 > j1) {
+      let interpolatedEta = p1.overpotential;
+      if (Math.abs(j2 - j1) > 1e-9) {
+        const t = (absTarget - j1) / (j2 - j1);
+        interpolatedEta = p1.overpotential + t * (p2.overpotential - p1.overpotential);
+      }
+
+      // Check subsequent points to see if current dips back down (oxidation peak hump) or stays sustained
+      let subsequentMin = j2;
+      let dipsBackDown = false;
+
+      // Look ahead up to 30 points or until the end of scan
+      const lookAheadEnd = Math.min(sortedData.length, i + 35);
+      for (let k = i + 1; k < lookAheadEnd; k++) {
+        const nextJ = Math.abs(sortedData[k].currentDensity);
+        if (nextJ < subsequentMin) {
+          subsequentMin = nextJ;
+        }
+        // If current drops below 80% of targetJ or drops by more than 2 mA/cm2, it's a pre-catalytic redox peak/spike
+        if (nextJ < absTarget * 0.82 || (nextJ < absTarget - 2.0 && absTarget >= 5)) {
+          dipsBackDown = true;
+        }
+      }
+
+      upwardCrossings.push({
+        index: i,
+        eta: interpolatedEta,
+        subsequentMinJ: subsequentMin,
+        isSustained: !dipsBackDown,
+      });
+    }
+  }
+
+  // 3. Choose the true catalytic crossing:
+  // Prefer the sustained upward crossing (the actual catalytic onset/branch)
+  if (upwardCrossings.length > 0) {
+    // Find the last crossing that is sustained, or simply the last upward crossing (since catalytic OER is at the high-potential end)
+    const sustained = upwardCrossings.filter(c => c.isSustained);
+    if (sustained.length > 0) {
+      const best = sustained[sustained.length - 1];
+      return Math.round(best.eta * 10) / 10;
+    }
+    // If none were strictly sustained, pick the latest crossing (which represents the real catalytic reaction curve rather than early peaks)
+    const lastCrossing = upwardCrossings[upwardCrossings.length - 1];
+    return Math.round(lastCrossing.eta * 10) / 10;
+  }
+
+  // 4. Fallback: Any crossing (downward/upward)
+  for (let i = sortedData.length - 2; i >= 0; i--) {
+    const p1 = sortedData[i];
+    const p2 = sortedData[i + 1];
     const j1 = Math.abs(p1.currentDensity);
     const j2 = Math.abs(p2.currentDensity);
 
     if ((j1 <= absTarget && j2 >= absTarget) || (j1 >= absTarget && j2 <= absTarget)) {
       if (Math.abs(j2 - j1) < 1e-9) {
-        return p1.overpotential;
+        return Math.round(p1.overpotential * 10) / 10;
       }
-      // Linear interpolation factor t
       const t = (absTarget - j1) / (j2 - j1);
       const interpolatedEta = p1.overpotential + t * (p2.overpotential - p1.overpotential);
       return Math.round(interpolatedEta * 10) / 10;
     }
   }
 
-  // If exact crossing isn't found within range, find the closest point if max j is close enough
-  const maxJ = Math.max(...data.map(p => Math.abs(p.currentDensity)));
+  // 5. If target current density was not reached
+  const maxJ = Math.max(...sortedData.map(p => Math.abs(p.currentDensity)));
   if (maxJ < absTarget * 0.8) {
-    return null; // Target j not reached
+    return null;
   }
 
-  // Return closest point
-  let closest = data[0];
+  // Closest point near the top of the curve
+  let closest = sortedData[sortedData.length - 1];
   let minDiff = Infinity;
-  for (const p of data) {
+  for (let i = sortedData.length - 1; i >= Math.max(0, sortedData.length - 20); i--) {
+    const p = sortedData[i];
     const diff = Math.abs(Math.abs(p.currentDensity) - absTarget);
     if (diff < minDiff) {
       minDiff = diff;

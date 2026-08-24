@@ -49,7 +49,7 @@ export function App() {
     config.defaultCompensation,
     config.geometricArea,
     config.showIRCompensated,
-    config.targetCurrentDensities,
+    JSON.stringify(config.targetCurrentDensities),
   ]);
 
   // Selected sample instance

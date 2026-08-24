@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   Upload,
   Plus,
@@ -49,6 +49,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [targetJInput, setTargetJInput] = useState(config.targetCurrentDensities.join(', '));
 
+  useEffect(() => {
+    setTargetJInput(config.targetCurrentDensities.join(', '));
+  }, [config.targetCurrentDensities]);
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(true);
@@ -73,15 +77,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  const handleTargetJBlur = () => {
-    const parts = targetJInput
-      .split(',')
+  const applyTargetJ = (rawStr: string) => {
+    const parts = rawStr
+      .split(/[,;\s]+/)
       .map(p => parseFloat(p.trim()))
       .filter(n => !isNaN(n) && n > 0);
+
     if (parts.length > 0) {
-      onChangeConfig({ ...config, targetCurrentDensities: parts });
+      onChangeConfig({ ...config, targetCurrentDensities: [...parts] });
     } else {
       setTargetJInput(config.targetCurrentDensities.join(', '));
+    }
+  };
+
+  const handleTargetJBlur = () => {
+    applyTargetJ(targetJInput);
+  };
+
+  const handleTargetJKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      applyTargetJ(targetJInput);
+      (e.target as HTMLInputElement).blur();
     }
   };
 
@@ -302,17 +318,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             {/* Target j (mA/cm2) */}
             <div className="space-y-1">
-              <label className="block text-[11px] font-semibold text-slate-700">
-                Target j (mA/cm²)
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="block text-[11px] font-semibold text-slate-700">
+                  Target j (mA/cm²)
+                </label>
+                <span className="text-[10px] text-slate-400 font-mono">쉼표 구분</span>
+              </div>
               <input
                 id="input-target-j"
                 type="text"
                 value={targetJInput}
                 onChange={e => setTargetJInput(e.target.value)}
                 onBlur={handleTargetJBlur}
-                className="w-full bg-white border border-slate-200 rounded-md px-2.5 py-1.5 text-xs text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-mono"
+                onKeyDown={handleTargetJKeyDown}
+                className="w-full bg-white border border-slate-200 rounded-md px-2.5 py-1.5 text-xs text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-mono font-medium"
                 placeholder="10, 50, 100"
+                title="과전압 계산 목표 전류밀도 목록 (예: 10, 20, 50, 100)"
               />
             </div>
 

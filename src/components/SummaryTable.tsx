@@ -1,7 +1,8 @@
 import React from 'react';
-import { Download, SlidersHorizontal, ArrowUpDown, FileSpreadsheet, Check, Eye, EyeOff } from 'lucide-react';
+import { Download, FileSpreadsheet, Eye, EyeOff } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { ExperimentConfig, Sample } from '../types';
+import { calculateInterpolatedEta } from '../utils/electrochem';
 
 interface SummaryTableProps {
   samples: Sample[];
@@ -18,16 +19,20 @@ export const SummaryTable: React.FC<SummaryTableProps> = ({
   onSelectSample,
   onToggleVisibility,
 }) => {
+  const targetCurrents =
+    config.targetCurrentDensities && config.targetCurrentDensities.length > 0
+      ? config.targetCurrentDensities
+      : [10, 50, 100];
+
   // Export Table to CSV
   const handleExportCSV = () => {
+    const dynamicEtaHeaders = targetCurrents.map(j => `eta_${j} (mV)`);
     const headers = [
       'Sample Name',
       'Catalyst Material',
       'Ru (Ohm)',
       'iR Comp (%)',
-      'eta_10 (mV)',
-      'eta_50 (mV)',
-      'eta_100 (mV)',
+      ...dynamicEtaHeaders,
       'Tafel Slope (mV/dec)',
       'R^2',
       'j0 (mA/cm2)',
@@ -35,20 +40,27 @@ export const SummaryTable: React.FC<SummaryTableProps> = ({
       'Tafel ROI Max log(j)',
     ];
 
-    const rows = samples.map(s => [
-      s.name,
-      s.catalystName,
-      s.ruResistance,
-      s.irCompensationPercent,
-      s.metrics.eta10 ?? '',
-      s.metrics.eta50 ?? '',
-      s.metrics.eta100 ?? '',
-      s.metrics.tafelSlope,
-      s.metrics.rSquared,
-      s.metrics.j0.toExponential(4),
-      s.tafelRoi.minLogJ,
-      s.tafelRoi.maxLogJ,
-    ]);
+    const rows = samples.map(s => {
+      const dynamicEtas = targetCurrents.map(j => {
+        const val =
+          s.metrics.customTargetEtas?.[j] ??
+          calculateInterpolatedEta(s.data, j, config.reactionType);
+        return val !== null ? val : '';
+      });
+
+      return [
+        s.name,
+        s.catalystName,
+        s.ruResistance,
+        s.irCompensationPercent,
+        ...dynamicEtas,
+        s.metrics.tafelSlope,
+        s.metrics.rSquared,
+        s.metrics.j0.toExponential(4),
+        s.tafelRoi.minLogJ,
+        s.tafelRoi.maxLogJ,
+      ];
+    });
 
     const csvContent =
       'data:text/csv;charset=utf-8,\uFEFF' +
@@ -65,22 +77,31 @@ export const SummaryTable: React.FC<SummaryTableProps> = ({
 
   // Export Table to Excel (.xlsx)
   const handleExportExcel = () => {
-    const summaryData = samples.map(s => ({
-      '샘플명 (Sample)': s.name,
-      '촉매명 (Catalyst)': s.catalystName,
-      '용액 저항 Ru (Ω)': s.ruResistance,
-      'iR 보정률 (%)': s.irCompensationPercent,
-      '과전압 η_10 (mV)': s.metrics.eta10 ?? 'N/A',
-      '과전압 η_50 (mV)': s.metrics.eta50 ?? 'N/A',
-      '과전압 η_100 (mV)': s.metrics.eta100 ?? 'N/A',
-      '타펠 슬롭 (mV/dec)': s.metrics.tafelSlope,
-      '선형성 R²': s.metrics.rSquared,
-      '교환전류밀도 j0 (mA/cm²)': s.metrics.j0,
-      '피팅 구간 (min log j)': s.tafelRoi.minLogJ,
-      '피팅 구간 (max log j)': s.tafelRoi.maxLogJ,
-      '촉매 로딩량 (mg/cm²)': s.loadingMgCm2 ?? '',
-      'ECSA (cm²)': s.ecsaCm2 ?? '',
-    }));
+    const summaryData = samples.map(s => {
+      const rowObj: Record<string, any> = {
+        '샘플명 (Sample)': s.name,
+        '촉매명 (Catalyst)': s.catalystName,
+        '용액 저항 Ru (Ω)': s.ruResistance,
+        'iR 보정률 (%)': s.irCompensationPercent,
+      };
+
+      targetCurrents.forEach(j => {
+        const val =
+          s.metrics.customTargetEtas?.[j] ??
+          calculateInterpolatedEta(s.data, j, config.reactionType);
+        rowObj[`과전압 η_${j} (mV)`] = val !== null ? val : 'N/A';
+      });
+
+      rowObj['타펠 슬롭 (mV/dec)'] = s.metrics.tafelSlope;
+      rowObj['선형성 R²'] = s.metrics.rSquared;
+      rowObj['교환전류밀도 j0 (mA/cm²)'] = s.metrics.j0;
+      rowObj['피팅 구간 (min log j)'] = s.tafelRoi.minLogJ;
+      rowObj['피팅 구간 (max log j)'] = s.tafelRoi.maxLogJ;
+      rowObj['촉매 로딩량 (mg/cm²)'] = s.loadingMgCm2 ?? '';
+      rowObj['ECSA (cm²)'] = s.ecsaCm2 ?? '';
+
+      return rowObj;
+    });
 
     const worksheet = XLSX.utils.json_to_sheet(summaryData);
     const workbook = XLSX.utils.book_new();
@@ -108,7 +129,7 @@ export const SummaryTable: React.FC<SummaryTableProps> = ({
           <button
             id="btn-download-csv-summary"
             onClick={handleExportCSV}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-all shadow-2xs"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-all shadow-2xs cursor-pointer"
             title="CSV 형식으로 다운로드"
           >
             <Download className="w-3.5 h-3.5 text-blue-600" />
@@ -117,7 +138,7 @@ export const SummaryTable: React.FC<SummaryTableProps> = ({
           <button
             id="btn-download-excel-summary"
             onClick={handleExportExcel}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold transition-all shadow-2xs"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold transition-all shadow-2xs cursor-pointer"
             title="엑셀 (.xlsx) 형식으로 다운로드"
           >
             <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
@@ -134,9 +155,20 @@ export const SummaryTable: React.FC<SummaryTableProps> = ({
               <th className="py-2.5 px-4 font-semibold">Sample Name</th>
               <th className="py-2.5 px-3 font-semibold">Catalyst</th>
               <th className="py-2.5 px-3 font-semibold">Ru (Ω)</th>
-              <th className="py-2.5 px-3 font-semibold text-blue-700">η_10 (mV)</th>
-              <th className="py-2.5 px-3 font-semibold">η_50 (mV)</th>
-              <th className="py-2.5 px-3 font-semibold">η_100 (mV)</th>
+              
+              {/* Dynamic Target j Overpotential Columns */}
+              {targetCurrents.map((targetJ, idx) => (
+                <th
+                  key={`th-target-eta-${targetJ}`}
+                  className={`py-2.5 px-3 font-semibold ${
+                    idx === 0 ? 'text-blue-700 font-bold' : ''
+                  }`}
+                  title={`${targetJ} mA/cm²에서의 과전압 (η_${targetJ})`}
+                >
+                  η_{targetJ} (mV)
+                </th>
+              ))}
+
               <th className="py-2.5 px-3 font-semibold text-emerald-700">Tafel Slope (mV/dec)</th>
               <th className="py-2.5 px-3 font-semibold">R²</th>
               <th className="py-2.5 px-3 font-semibold">j₀ (mA/cm²)</th>
@@ -162,7 +194,7 @@ export const SummaryTable: React.FC<SummaryTableProps> = ({
           <tbody className="divide-y divide-slate-100">
             {samples.length === 0 ? (
               <tr>
-                <td colSpan={10} className="py-8 text-center text-slate-400">
+                <td colSpan={7 + targetCurrents.length} className="py-8 text-center text-slate-400">
                   데이터가 없습니다.
                 </td>
               </tr>
@@ -204,20 +236,25 @@ export const SummaryTable: React.FC<SummaryTableProps> = ({
                       {sample.ruResistance.toFixed(2)}
                     </td>
 
-                    {/* eta_10 */}
-                    <td className="py-2.5 px-3 font-mono font-bold text-blue-700 text-sm">
-                      {metrics.eta10 !== null ? `${metrics.eta10}` : '-'}
-                    </td>
+                    {/* Dynamic Target j Overpotentials */}
+                    {targetCurrents.map((targetJ, idx) => {
+                      const etaVal =
+                        metrics.customTargetEtas?.[targetJ] ??
+                        calculateInterpolatedEta(sample.data, targetJ, config.reactionType);
 
-                    {/* eta_50 */}
-                    <td className="py-2.5 px-3 font-mono text-slate-800">
-                      {metrics.eta50 !== null ? `${metrics.eta50}` : '-'}
-                    </td>
-
-                    {/* eta_100 */}
-                    <td className="py-2.5 px-3 font-mono text-slate-800">
-                      {metrics.eta100 !== null ? `${metrics.eta100}` : '-'}
-                    </td>
+                      return (
+                        <td
+                          key={`td-target-eta-${sample.id}-${targetJ}`}
+                          className={`py-2.5 px-3 font-mono ${
+                            idx === 0
+                              ? 'font-bold text-blue-700 text-sm'
+                              : 'text-slate-800'
+                          }`}
+                        >
+                          {etaVal !== null ? `${etaVal}` : '-'}
+                        </td>
+                      );
+                    })}
 
                     {/* Tafel slope */}
                     <td className="py-2.5 px-3 font-mono font-bold text-emerald-700 text-sm">
