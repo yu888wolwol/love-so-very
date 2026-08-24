@@ -17,6 +17,9 @@ export interface ParsedRawData {
 /**
  * Intelligent file parser that automatically extracts ONE or MULTIPLE electrochemical datasets
  * from CSV, XLSX, XLS, MPR, or TXT files.
+ *
+ * Each dataset (graph/curve) is formed by a (X = Potential, Y = Current) pair of columns.
+ * For example, 10 columns with 5 pairs of (Ewe/V, <I>/mA) will generate exactly 5 distinct graphs.
  */
 export async function parseElectrochemicalFile(file: File): Promise<ParsedRawData[]> {
   const fileName = file.name;
@@ -34,7 +37,8 @@ export async function parseElectrochemicalFile(file: File): Promise<ParsedRawDat
 }
 
 /**
- * Parses Excel files (.xlsx, .xls) that may contain single or MULTIPLE LSV/CV dataset column pairs.
+ * Parses Excel files (.xlsx, .xls) that contain single or MULTIPLE LSV/CV dataset column pairs.
+ * (e.g. Col 1: X1 (Ewe/V), Col 2: Y1 (<I>/mA), Col 3: X2 (Ewe/V), Col 4: Y2 (<I>/mA), ... -> 5 graphs)
  */
 async function parseExcelFile(file: File, defaultSampleName: string): Promise<ParsedRawData[]> {
   const buffer = await file.arrayBuffer();
@@ -59,7 +63,6 @@ async function parseExcelFile(file: File, defaultSampleName: string): Promise<Pa
     throw new Error('엑셀 파일에서 유효한 열을 찾지 못했습니다.');
   }
 
-  // Detect dataset column pairs across all columns
   interface ColumnPairCandidate {
     potCol: number;
     curCol: number;
@@ -71,37 +74,38 @@ async function parseExcelFile(file: File, defaultSampleName: string): Promise<Pa
 
   const columnPairs: ColumnPairCandidate[] = [];
 
-  // Scan across columns to find pairs of Potential & Current
+  // Strategy 1: Header Keyword Matching across column pairs (X: Ewe/V vs Y: <I>/mA)
   for (let c = 0; c < maxCols; c++) {
-    // Look down rows 0..20 for Potential keyword in column c
     for (let r = 0; r < Math.min(25, rawRows.length); r++) {
       const cellText = String(rawRows[r]?.[c] || '').trim().toLowerCase();
       if (isPotentialColumn(cellText)) {
-        // Look for companion Current column at c+1, or c+2, or c-1
+        // Look for companion Current column in adjacent column (c+1)
         let companionCol = -1;
         let companionRow = r;
         let curCellText = '';
 
         // Check c+1
-        const rightCell = String(rawRows[r]?.[c + 1] || '').trim().toLowerCase();
-        if (isCurrentColumn(rightCell)) {
-          companionCol = c + 1;
-          curCellText = String(rawRows[r]?.[c + 1] || '').trim();
-        } else {
-          // Check if right cell has current on row r+1 or r-1
-          for (let ro = Math.max(0, r - 2); ro <= Math.min(rawRows.length - 1, r + 2); ro++) {
-            const checkCell = String(rawRows[ro]?.[c + 1] || '').trim().toLowerCase();
-            if (isCurrentColumn(checkCell)) {
-              companionCol = c + 1;
-              companionRow = ro;
-              curCellText = String(rawRows[ro]?.[c + 1] || '').trim();
-              break;
+        if (c + 1 < maxCols) {
+          const rightCell = String(rawRows[r]?.[c + 1] || '').trim().toLowerCase();
+          if (isCurrentColumn(rightCell)) {
+            companionCol = c + 1;
+            curCellText = String(rawRows[r]?.[c + 1] || '').trim();
+          } else {
+            // Check adjacent rows (+-2) in column c+1
+            for (let ro = Math.max(0, r - 2); ro <= Math.min(rawRows.length - 1, r + 2); ro++) {
+              const checkCell = String(rawRows[ro]?.[c + 1] || '').trim().toLowerCase();
+              if (isCurrentColumn(checkCell)) {
+                companionCol = c + 1;
+                companionRow = ro;
+                curCellText = String(rawRows[ro]?.[c + 1] || '').trim();
+                break;
+              }
             }
           }
         }
 
         if (companionCol !== -1) {
-          // Found a pair! Find sample label from preceding rows (r-1, r-2, or column header)
+          // Extract sample title from row 0 or preceding row
           let label = '';
           for (let pr = Math.min(r, companionRow) - 1; pr >= 0; pr--) {
             const possibleLabel = String(rawRows[pr]?.[c] || rawRows[pr]?.[companionCol] || '').trim();
@@ -112,7 +116,7 @@ async function parseExcelFile(file: File, defaultSampleName: string): Promise<Pa
           }
 
           if (!label) {
-            label = `${defaultSampleName}_#${columnPairs.length + 1}`;
+            label = `Sample ${columnPairs.length + 1}`;
           }
 
           columnPairs.push({
@@ -124,18 +128,17 @@ async function parseExcelFile(file: File, defaultSampleName: string): Promise<Pa
             sampleLabel: label,
           });
 
-          // Skip past the companion column to avoid duplicate pair detection
-          c = Math.max(c, companionCol);
+          // Skip companion column
+          c = companionCol;
           break;
         }
       }
     }
   }
 
-  // Fallback: If no column headers matched keywords, check for adjacent numeric column pairs
+  // Strategy 2: If no explicit headers, group adjacent numeric columns in pairs (c, c+1)
   if (columnPairs.length === 0) {
     let startRow = 0;
-    // Find first row with numbers
     for (let r = 0; r < Math.min(20, rawRows.length); r++) {
       const row = rawRows[r];
       if (Array.isArray(row) && row.some(val => !isNaN(parseFloat(val)))) {
@@ -144,7 +147,6 @@ async function parseExcelFile(file: File, defaultSampleName: string): Promise<Pa
       }
     }
 
-    // Check pairs of columns (0,1), (2,3), (4,5) ...
     for (let c = 0; c < maxCols - 1; c += 2) {
       let validCount = 0;
       for (let r = startRow; r < Math.min(startRow + 10, rawRows.length); r++) {
@@ -159,7 +161,7 @@ async function parseExcelFile(file: File, defaultSampleName: string): Promise<Pa
           const possibleLabel = String(rawRows[startRow - 1]?.[c] || '').trim();
           if (possibleLabel) label = cleanSampleNameFromPath(possibleLabel);
         }
-        if (!label) label = `${defaultSampleName}_#${columnPairs.length + 1}`;
+        if (!label) label = `Sample ${columnPairs.length + 1}`;
 
         columnPairs.push({
           potCol: c,
@@ -174,10 +176,10 @@ async function parseExcelFile(file: File, defaultSampleName: string): Promise<Pa
   }
 
   if (columnPairs.length === 0) {
-    throw new Error('유효한 전위/전류 수치 데이터 열을 찾지 못했습니다.');
+    throw new Error('유효한 전위(X축) / 전류(Y축) 수치 데이터 열 쌍을 찾지 못했습니다.');
   }
 
-  // Extract data points for each detected column pair
+  // Extract data points for each detected (X, Y) column pair
   const results: ParsedRawData[] = [];
 
   for (let idx = 0; idx < columnPairs.length; idx++) {
@@ -211,10 +213,9 @@ async function parseExcelFile(file: File, defaultSampleName: string): Promise<Pa
       // Clean CV loops to standard monotonic LSV forward sweep
       const cleanedPoints = cleanLsvBranch(points);
 
-      // Cleaned sample label
-      let sName = pair.sampleLabel || `${defaultSampleName}_${idx + 1}`;
-      if (columnPairs.length === 1 && !pair.sampleLabel.includes('#')) {
-        sName = defaultSampleName;
+      let sName = pair.sampleLabel;
+      if (!sName || sName === 'Sample') {
+        sName = columnPairs.length > 1 ? `Sample ${idx + 1}` : defaultSampleName;
       }
 
       results.push({
@@ -360,7 +361,7 @@ async function parseDelimitedTextFile(file: File, sampleName: string): Promise<P
 }
 
 /**
- * Core text parser for CSV, TSV, WonATech, Gamry DTA, Ivium, Bio-Logic ASCII supporting multi-columns
+ * Core text parser for CSV, TSV, WonATech, Gamry DTA, Ivium, Bio-Logic ASCII supporting pairwise multi-columns
  */
 export function parseTextDataMulti(
   text: string,
@@ -418,14 +419,14 @@ export function parseTextDataMulti(
           if (r > 0) {
             label = cleanSampleNameFromPath(String(parsedRows[r - 1]?.[c] || ''));
           }
-          if (!label) label = `${defaultSampleName}_#${columnPairs.length + 1}`;
+          if (!label) label = `Sample ${columnPairs.length + 1}`;
           columnPairs.push({
             potCol: c,
             curCol: c + 1,
             headerRow: r,
             sampleLabel: label,
           });
-          c++;
+          c++; // skip current column
           break;
         }
       }
@@ -452,7 +453,8 @@ export function parseTextDataMulti(
   }
 
   const results: ParsedRawData[] = [];
-  for (const pair of columnPairs) {
+  for (let idx = 0; idx < columnPairs.length; idx++) {
+    const pair = columnPairs[idx];
     const points: { rawE: number; rawI: number }[] = [];
     for (let r = pair.headerRow + 1; r < parsedRows.length; r++) {
       const rawE = parseFloat(parsedRows[r]?.[pair.potCol]);
@@ -466,7 +468,7 @@ export function parseTextDataMulti(
       const cleaned = cleanLsvBranch(points);
       results.push({
         fileName,
-        sampleName: cleanSampleNameFromPath(pair.sampleLabel),
+        sampleName: cleanSampleNameFromPath(pair.sampleLabel) || `Sample ${idx + 1}`,
         fileType,
         points: cleaned,
         detectedColumns: {
