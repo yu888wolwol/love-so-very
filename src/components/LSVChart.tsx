@@ -586,6 +586,71 @@ export const LSVChart: React.FC<LSVChartProps> = ({
             })}
           </g>
 
+          {/* Target Current Density Intersection Markers (Point A, B, C...) */}
+          <g className="intersection-markers" clipPath="url(#lsv-clip)">
+            {visibleSamples
+              .filter(s => s.id === selectedSampleId || visibleSamples.length === 1)
+              .flatMap(sample => {
+                return config.targetCurrentDensities.flatMap(targetJ => {
+                  const points = sample.metrics.customTargetPoints?.[targetJ] || [];
+                  return points.map(pt => {
+                    let cx = scaleX(pt.potentialRHE);
+                    if (axisMode === 'RawE') cx = scaleX(pt.potentialRaw);
+                    else if (axisMode === 'Overpotential') cx = scaleX(pt.eta);
+                    const cy = scaleY(targetJ);
+
+                    if (
+                      !isFinite(cx) ||
+                      !isFinite(cy) ||
+                      cx < margin.left - 5 ||
+                      cx > margin.left + plotWidth + 5 ||
+                      cy < margin.top - 5 ||
+                      cy > margin.top + plotHeight + 5
+                    ) {
+                      return null;
+                    }
+
+                    const isRise = pt.pointType === 'redox_rise';
+                    const isCatalytic = pt.pointType === 'catalytic';
+                    const badgeColor = isCatalytic ? '#2563eb' : isRise ? '#d97706' : '#7c3aed';
+
+                    return (
+                      <g key={`marker-${sample.id}-${targetJ}-${pt.tag}-${cx.toFixed(1)}`} className="cursor-pointer">
+                        {/* Glow halo */}
+                        <circle cx={cx} cy={cy} r={9} fill={badgeColor} fillOpacity={0.25} />
+                        {/* Core pin */}
+                        <circle cx={cx} cy={cy} r={5} fill={badgeColor} stroke="#ffffff" strokeWidth={1.5} />
+                        {/* Point Badge Label */}
+                        <rect
+                          x={cx - 18}
+                          y={cy - 22}
+                          width={36}
+                          height={15}
+                          rx={3}
+                          fill="#0f172a"
+                          fillOpacity={0.88}
+                        />
+                        <text
+                          x={cx}
+                          y={cy - 12}
+                          textAnchor="middle"
+                          fontSize="9"
+                          fontFamily="monospace"
+                          fontWeight="bold"
+                          fill="#ffffff"
+                        >
+                          Pt {pt.tag}
+                        </text>
+                        <title>
+                          {`${sample.name} - ${pt.label}\n전위: ${pt.potentialRHE.toFixed(3)} V vs RHE\n과전압: ${pt.eta} mV\n전류밀도: ${targetJ} mA/cm²`}
+                        </title>
+                      </g>
+                    );
+                  });
+                });
+              })}
+          </g>
+
           {/* X Axis Tick Labels */}
           <g className="x-axis-labels">
             {xTicks.map((tick, i) => {

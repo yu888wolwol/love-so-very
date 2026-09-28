@@ -2,7 +2,7 @@ import React from 'react';
 import { Download, FileSpreadsheet, Eye, EyeOff } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { ExperimentConfig, Sample } from '../types';
-import { calculateInterpolatedEta } from '../utils/electrochem';
+import { calculateInterpolatedEta, calculateAllInterpolatedEtas } from '../utils/electrochem';
 
 interface SummaryTableProps {
   samples: Sample[];
@@ -42,10 +42,18 @@ export const SummaryTable: React.FC<SummaryTableProps> = ({
 
     const rows = samples.map(s => {
       const dynamicEtas = targetCurrents.map(j => {
+        const points =
+          s.metrics.customTargetPoints?.[j] ??
+          calculateAllInterpolatedEtas(s.data, j, config.reactionType);
+        if (points && points.length > 1) {
+          return `"${points.map(p => `${p.tag}: ${p.eta} mV (${p.potentialRHE.toFixed(3)} V)`).join(' / ')}"`;
+        }
+        const pt = points?.[0];
         const val =
+          pt?.eta ??
           s.metrics.customTargetEtas?.[j] ??
           calculateInterpolatedEta(s.data, j, config.reactionType);
-        return val !== null ? val : '';
+        return val !== null ? (pt ? `"${pt.eta} mV (${pt.potentialRHE.toFixed(3)} V)"` : val) : '';
       });
 
       return [
@@ -86,10 +94,19 @@ export const SummaryTable: React.FC<SummaryTableProps> = ({
       };
 
       targetCurrents.forEach(j => {
-        const val =
-          s.metrics.customTargetEtas?.[j] ??
-          calculateInterpolatedEta(s.data, j, config.reactionType);
-        rowObj[`과전압 η_${j} (mV)`] = val !== null ? val : 'N/A';
+        const points =
+          s.metrics.customTargetPoints?.[j] ??
+          calculateAllInterpolatedEtas(s.data, j, config.reactionType);
+        if (points && points.length > 1) {
+          rowObj[`과전압 η_${j} (mV)`] = points.map(p => `${p.tag}: ${p.eta} mV (${p.potentialRHE.toFixed(3)} V)`).join(' / ');
+        } else {
+          const pt = points?.[0];
+          const val =
+            pt?.eta ??
+            s.metrics.customTargetEtas?.[j] ??
+            calculateInterpolatedEta(s.data, j, config.reactionType);
+          rowObj[`과전압 η_${j} (mV)`] = val !== null ? (pt ? `${pt.eta} mV (${pt.potentialRHE.toFixed(3)} V)` : val) : 'N/A';
+        }
       });
 
       rowObj['타펠 슬롭 (mV/dec)'] = s.metrics.tafelSlope;
@@ -238,20 +255,83 @@ export const SummaryTable: React.FC<SummaryTableProps> = ({
 
                     {/* Dynamic Target j Overpotentials */}
                     {targetCurrents.map((targetJ, idx) => {
+                      const points =
+                        metrics.customTargetPoints?.[targetJ] ??
+                        calculateAllInterpolatedEtas(sample.data, targetJ, config.reactionType);
                       const etaVal =
                         metrics.customTargetEtas?.[targetJ] ??
                         calculateInterpolatedEta(sample.data, targetJ, config.reactionType);
 
+                      if (!points || points.length === 0) {
+                        return (
+                          <td
+                            key={`td-target-eta-${sample.id}-${targetJ}`}
+                            className="py-2.5 px-3 font-mono text-slate-400"
+                          >
+                            {etaVal !== null ? `${etaVal}` : '-'}
+                          </td>
+                        );
+                      }
+
+                      if (points.length === 1) {
+                        return (
+                          <td
+                            key={`td-target-eta-${sample.id}-${targetJ}`}
+                            className={`py-2.5 px-3 font-mono ${
+                              idx === 0
+                                ? 'font-bold text-blue-700 text-sm'
+                                : 'text-slate-800'
+                            }`}
+                            title={`과전압: ${points[0].eta} mV\n전위: ${points[0].potentialRHE.toFixed(3)} V vs RHE`}
+                          >
+                            <div className="flex items-baseline gap-1">
+                              <span>{points[0].eta}</span>
+                              <span className="text-[10px] text-slate-500 font-normal">mV</span>
+                              <span className="text-[10px] text-slate-400 font-normal hidden xl:inline">
+                                ({points[0].potentialRHE.toFixed(3)} V)
+                              </span>
+                            </div>
+                          </td>
+                        );
+                      }
+
+                      // Multiple points exist: display all points simultaneously with both overpotential and RHE potential!
                       return (
                         <td
                           key={`td-target-eta-${sample.id}-${targetJ}`}
-                          className={`py-2.5 px-3 font-mono ${
-                            idx === 0
-                              ? 'font-bold text-blue-700 text-sm'
-                              : 'text-slate-800'
-                          }`}
+                          className="py-1.5 px-2 font-mono"
                         >
-                          {etaVal !== null ? `${etaVal}` : '-'}
+                          <div className="flex flex-col gap-1">
+                            {points.map((pt, pIdx) => {
+                              const isCatalytic = pIdx === points.length - 1;
+                              const isRise = pIdx === 0;
+                              return (
+                                <div
+                                  key={pIdx}
+                                  className={`inline-flex items-center justify-between gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono tracking-tight shadow-2xs whitespace-nowrap transition-transform hover:scale-[1.02] cursor-help ${
+                                    isCatalytic
+                                      ? 'bg-blue-100 text-blue-900 border border-blue-300 font-bold ring-1 ring-blue-400/40'
+                                      : isRise
+                                      ? 'bg-amber-100 text-amber-900 border border-amber-300 font-bold ring-1 ring-amber-400/30'
+                                      : 'bg-slate-100 text-slate-800 border border-slate-300'
+                                  }`}
+                                  title={`${pt.label}\n전위: ${pt.potentialRHE.toFixed(3)} V vs RHE\n과전압 η: ${pt.eta} mV`}
+                                >
+                                  <div className="flex items-center gap-1">
+                                    <span className={`text-[10px] font-extrabold ${
+                                      isCatalytic ? 'text-blue-700' : isRise ? 'text-amber-700' : 'text-slate-600'
+                                    }`}>
+                                      Point {pt.tag}:
+                                    </span>
+                                    <span>{pt.eta} mV</span>
+                                  </div>
+                                  <span className="text-[10px] opacity-80 font-medium">
+                                    ({pt.potentialRHE.toFixed(3)} V)
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </td>
                       );
                     })}

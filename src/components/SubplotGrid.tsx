@@ -96,10 +96,19 @@ export const SubplotGrid: React.FC<SubplotGridProps> = ({
 
             {/* Performance Metrics Pills */}
             <div className="grid grid-cols-3 gap-1.5 text-center mt-1">
-              <div className="bg-blue-50/60 border border-blue-100 rounded p-1.5">
+              <div
+                className="bg-blue-50/60 border border-blue-100 rounded p-1.5"
+                title={
+                  metrics.allEta10 && metrics.allEta10.length > 1
+                    ? `다중 지점: ${metrics.allEta10.map((v, i) => `Point ${String.fromCharCode(65 + i)}: ${v} mV`).join(' / ')}`
+                    : undefined
+                }
+              >
                 <span className="text-[9px] text-slate-500 block">η @ 10 mA</span>
-                <span className="font-mono font-bold text-blue-700 text-xs">
-                  {metrics.eta10 ? `${metrics.eta10} mV` : '-'}
+                <span className="font-mono font-bold text-blue-700 text-xs truncate block">
+                  {metrics.allEta10 && metrics.allEta10.length > 1
+                    ? metrics.allEta10.map((v, i) => `${String.fromCharCode(65 + i)}:${v}`).join('/')
+                    : metrics.eta10 ? `${metrics.eta10} mV` : '-'}
                 </span>
               </div>
               <div className="bg-emerald-50/60 border border-emerald-100 rounded p-1.5">

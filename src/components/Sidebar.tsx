@@ -332,8 +332,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onBlur={handleTargetJBlur}
                 onKeyDown={handleTargetJKeyDown}
                 className="w-full bg-white border border-slate-200 rounded-md px-2.5 py-1.5 text-xs text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-mono font-medium"
-                placeholder="10, 50, 100"
-                title="과전압 계산 목표 전류밀도 목록 (예: 10, 20, 50, 100)"
+                placeholder="5, 10, 50, 100"
+                title="과전압 계산 목표 전류밀도 목록 (예: 5, 10, 50, 100)"
               />
             </div>
 
@@ -421,8 +421,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       {/* Right: Actions */}
                       <div className="flex items-center gap-1 shrink-0">
                         {sample.metrics.eta10 !== null && (
-                          <span className="font-mono text-[10px] font-bold text-blue-700 bg-blue-100/60 px-1.5 py-0.5 rounded">
-                            {sample.metrics.eta10} mV
+                          <span
+                            className="font-mono text-[10px] font-bold text-blue-700 bg-blue-100/60 px-1.5 py-0.5 rounded"
+                            title={
+                              sample.metrics.allEta10 && sample.metrics.allEta10.length > 1
+                                ? `다중 과전압 지점: ${sample.metrics.allEta10.map((v, i) => `${String.fromCharCode(65 + i)}: ${v} mV`).join(' / ')}`
+                                : `η₁₀ = ${sample.metrics.eta10} mV`
+                            }
+                          >
+                            {sample.metrics.allEta10 && sample.metrics.allEta10.length > 1
+                              ? `${sample.metrics.allEta10.map((v, i) => `${String.fromCharCode(65 + i)}:${v}`).join('/')} mV`
+                              : `${sample.metrics.eta10} mV`}
                           </span>
                         )}
                         <button

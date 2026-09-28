@@ -10,13 +10,31 @@ export interface DataPoint {
   currentDensity: number; // current density j (mA/cm2)
   overpotential: number;  // overpotential eta (mV)
   logJ: number;          // log10(|j|)
+  alreadyRHE?: boolean;
+  isCurrentDensity?: boolean;
+}
+
+export interface OverpotentialPoint {
+  eta: number;            // overpotential (mV)
+  potentialRHE: number;   // potential vs RHE (V)
+  potentialRaw: number;   // measured potential (V)
+  currentDensity: number; // target current density (mA/cm2)
+  label: string;          // e.g. "Point A (산화 피크: 162.3 mV)"
+  tag: string;            // "A", "B", "C" or "1", "2"
+  pointType: 'redox_rise' | 'redox_fall' | 'catalytic' | 'general';
+  index: number;          // sequence index
 }
 
 export interface SampleMetrics {
-  eta10: number | null;     // overpotential at 10 mA/cm2 (mV)
-  eta50: number | null;     // overpotential at 50 mA/cm2 (mV)
-  eta100: number | null;    // overpotential at 100 mA/cm2 (mV)
+  eta10: number | null;     // primary overpotential at 10 mA/cm2 (mV)
+  eta50: number | null;     // primary overpotential at 50 mA/cm2 (mV)
+  eta100: number | null;    // primary overpotential at 100 mA/cm2 (mV)
+  allEta10?: number[];      // all calculated overpotential points at 10 mA/cm2 (mV)
+  allEta50?: number[];      // all calculated overpotential points at 50 mA/cm2 (mV)
+  allEta100?: number[];     // all calculated overpotential points at 100 mA/cm2 (mV)
   customTargetEtas: { [targetJ: number]: number | null };
+  customTargetAllEtas?: { [targetJ: number]: number[] };
+  customTargetPoints?: { [targetJ: number]: OverpotentialPoint[] };
   tafelSlope: number;       // Tafel slope b (mV/dec)
   rSquared: number;         // R^2 coefficient of determination
   intercept: number;        // Tafel intercept

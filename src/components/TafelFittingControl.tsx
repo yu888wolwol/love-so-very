@@ -177,10 +177,32 @@ export const TafelFittingControl: React.FC<TafelFittingControlProps> = ({
 
         <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
           <span className="text-[10px] font-semibold text-slate-500 block uppercase">η @ 10 mA/cm²</span>
-          <span className="font-mono font-extrabold text-slate-800 text-lg">
-            {sample.metrics.eta10 ?? '-'}
-          </span>
-          <span className="text-[10px] text-slate-500 ml-1">mV</span>
+          {sample.metrics.allEta10 && sample.metrics.allEta10.length > 1 ? (
+            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+              {sample.metrics.allEta10.map((val, idx) => (
+                <span
+                  key={idx}
+                  className={`px-1.5 py-0.5 rounded text-xs font-mono font-bold ${
+                    idx === sample.metrics.allEta10!.length - 1
+                      ? 'bg-blue-100 text-blue-900 border border-blue-300'
+                      : 'bg-amber-100 text-amber-900 border border-amber-300'
+                  }`}
+                  title={`Point ${String.fromCharCode(65 + idx)}: ${val} mV`}
+                >
+                  <span className="text-[9px] mr-1 opacity-75">{String.fromCharCode(65 + idx)}:</span>
+                  {val}
+                </span>
+              ))}
+              <span className="text-[10px] text-slate-500">mV</span>
+            </div>
+          ) : (
+            <div className="mt-0.5">
+              <span className="font-mono font-extrabold text-slate-800 text-lg">
+                {sample.metrics.eta10 ?? '-'}
+              </span>
+              <span className="text-[10px] text-slate-500 ml-1">mV</span>
+            </div>
+          )}
         </div>
       </div>
     </div>

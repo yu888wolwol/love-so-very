@@ -269,8 +269,16 @@ ${sList
                       <td className="py-2 px-3 font-bold text-blue-700">#{idx + 1}</td>
                       <td className="py-2 px-3 font-mono">{s.name}</td>
                       <td className="py-2 px-3">{s.catalystName}</td>
-                      <td className="py-2 px-3 font-mono text-blue-700">{s.metrics.eta10 ?? '-'}</td>
-                      <td className="py-2 px-3 font-mono">{s.metrics.eta50 ?? '-'}</td>
+                      <td className="py-2 px-3 font-mono text-blue-700">
+                        {s.metrics.allEta10 && s.metrics.allEta10.length > 1
+                          ? s.metrics.allEta10.map((v, i) => `${String.fromCharCode(65 + i)}: ${v}`).join(' / ')
+                          : s.metrics.eta10 ?? '-'}
+                      </td>
+                      <td className="py-2 px-3 font-mono">
+                        {s.metrics.allEta50 && s.metrics.allEta50.length > 1
+                          ? s.metrics.allEta50.map((v, i) => `${String.fromCharCode(65 + i)}: ${v}`).join(' / ')
+                          : s.metrics.eta50 ?? '-'}
+                      </td>
                       <td className="py-2 px-3 font-mono text-emerald-700">{s.metrics.tafelSlope}</td>
                       <td className="py-2 px-3 font-mono">{s.metrics.rSquared}</td>
                       <td className="py-2 px-3 font-mono">{s.metrics.j0.toExponential(2)}</td>

@@ -1,4 +1,4 @@
-import { DataPoint, ExperimentConfig, ReactionType, ReferenceElectrodeType, Sample, SampleMetrics } from '../types';
+import { DataPoint, ExperimentConfig, OverpotentialPoint, ReactionType, ReferenceElectrodeType, Sample, SampleMetrics } from '../types';
 
 export const REFERENCE_ELECTRODES: Record<ReferenceElectrodeType, { name: string; standardPotential: number; description: string }> = {
   'Ag/AgCl': { name: 'Ag/AgCl (3M KCl)', standardPotential: 0.210, description: '+0.210 V vs. SHE (3M KCl) / +0.197 V (Sat. KCl)' },
@@ -10,10 +10,10 @@ export const REFERENCE_ELECTRODES: Record<ReferenceElectrodeType, { name: string
 };
 
 export const REACTION_PRESETS: Record<ReactionType, { name: string; eRev: number; defaultTargets: number[]; description: string }> = {
-  'OER': { name: 'OER (Oxygen Evolution, 1.23 V)', eRev: 1.230, defaultTargets: [10, 50, 100], description: '2H2O -> O2 + 4H+ + 4e- (E° = 1.23 V vs. RHE)' },
+  'OER': { name: 'OER (Oxygen Evolution, 1.23 V)', eRev: 1.230, defaultTargets: [5, 10, 50, 100], description: '2H2O -> O2 + 4H+ + 4e- (E° = 1.23 V vs. RHE)' },
   'HER': { name: 'HER (Hydrogen Evolution, 0.00 V)', eRev: 0.000, defaultTargets: [10, 50, 100], description: '2H+ + 2e- -> H2 (E° = 0.00 V vs. RHE)' },
   'ORR': { name: 'ORR (Oxygen Reduction, 1.23 V)', eRev: 1.230, defaultTargets: [2, 3, 5], description: 'O2 + 4H+ + 4e- -> 2H2O (E° = 1.23 V vs. RHE)' },
-  'CUSTOM': { name: 'Custom Reaction', eRev: 1.230, defaultTargets: [10, 50, 100], description: 'User-specified thermodynamic potential' },
+  'CUSTOM': { name: 'Custom Reaction', eRev: 1.230, defaultTargets: [5, 10, 50, 100], description: 'User-specified thermodynamic potential' },
 };
 
 export function getRefPotential(type: ReferenceElectrodeType, customVal: number = 0.210): number {
@@ -30,7 +30,7 @@ export function getRevPotential(type: ReactionType, customVal: number = 1.230): 
  * Calculates converted electrochemical data points for a sample
  */
 export function calculateDataPoints(
-  rawPoints: { rawE: number; rawI: number }[],
+  rawPoints: { rawE: number; rawI: number; alreadyRHE?: boolean; isCurrentDensity?: boolean }[],
   config: ExperimentConfig,
   ruResistance: number,
   irCompensationPercent: number
@@ -42,31 +42,34 @@ export function calculateDataPoints(
   const compFraction = Math.max(0, Math.min(1, irCompensationPercent / 100));
 
   return rawPoints.map(pt => {
-    // Current in mA
-    const i_mA = pt.rawI;
-    const currentDensity = i_mA / area; // mA/cm2
+    // Current density j in mA/cm2:
+    // If input was already current density (e.g. from file column j(mA/cm2)), preserve it directly.
+    // Otherwise, current is in mA, so divide by geometric area (cm2).
+    const currentDensity = pt.isCurrentDensity ? pt.rawI : pt.rawI / area;
 
-    // iR drop: (i in A) * Ru = (i_mA * 1e-3) * Ru
-    const iR_drop_total = (i_mA * 1e-3) * ruResistance; // Volts
+    // Total measured current (A) for iR drop calculation:
+    // If input was already current density, i_total = currentDensity * area * 1e-3
+    const totalCurrent_A = (pt.isCurrentDensity ? currentDensity * area : pt.rawI) * 1e-3;
+    const iR_drop_total = totalCurrent_A * ruResistance; // Volts
     const iR_drop_comp = iR_drop_total * compFraction;
 
-    // E_RHE = E_meas + E_ref + 0.05916*pH - iR_comp
-    let potentialRHE = pt.rawE + eRef + nernstOffset - iR_drop_comp;
-    let potentialRHE_noIR = pt.rawE + eRef + nernstOffset;
+    let potentialRHE: number;
+    let potentialRHE_noIR: number;
 
-    if (config.referenceElectrode === 'RHE') {
-      // If reference is already RHE, skip E_ref + nernstOffset
+    if (pt.alreadyRHE || config.referenceElectrode === 'RHE') {
+      // If reference/data is already RHE, skip E_ref + nernstOffset
       potentialRHE = pt.rawE - iR_drop_comp;
       potentialRHE_noIR = pt.rawE;
+    } else {
+      potentialRHE = pt.rawE + eRef + nernstOffset - iR_drop_comp;
+      potentialRHE_noIR = pt.rawE + eRef + nernstOffset;
     }
 
     // Overpotential eta in mV
     let overpotential = 0;
     if (config.reactionType === 'HER') {
-      // For HER: eta = (E_rev - E_RHE) * 1000 or (0 - E_RHE) * 1000
       overpotential = (eRev - potentialRHE) * 1000;
     } else {
-      // For OER & others: eta = (E_RHE - E_rev) * 1000
       overpotential = (potentialRHE - eRev) * 1000;
     }
 
@@ -82,126 +85,213 @@ export function calculateDataPoints(
       currentDensity,
       overpotential,
       logJ,
+      alreadyRHE: pt.alreadyRHE,
+      isCurrentDensity: pt.isCurrentDensity,
     };
   });
 }
 
 /**
- * Calculates overpotential at a target current density (e.g. 10, 50, 100 mA/cm2) via linear interpolation.
- * Ignores pre-catalytic oxidation peaks (촉매 사전 산화 피크/볼록한 부분) and transient spikes by identifying
- * the sustained catalytic reaction branch.
+ * Calculates ALL intersection points where current density reaches or crosses targetJ.
+ * Directly detects physical crossings on curve data (with noise debounce and scan trajectory awareness):
+ * e.g. Point A: 산화 피크 상승부 교차점
+ *      Point B: 산화 피크 하강부 교차점
+ *      Point C: 본 촉매 반응 지속 영역
+ */
+export function calculateAllInterpolatedEtas(
+  data: DataPoint[],
+  targetJ: number,
+  reactionType: ReactionType
+): OverpotentialPoint[] {
+  if (!data || data.length < 2) return [];
+
+  const absTarget = Math.abs(targetJ);
+  const maxJ = Math.max(...data.map(p => Math.abs(p.currentDensity)));
+
+  // If curve scan never reached near targetJ at all (at least 90%), return empty
+  if (maxJ < absTarget * 0.9) {
+    return [];
+  }
+
+  // Detect physical crossings directly on the data points trajectory
+  const rawCrossings: {
+    eta: number;
+    potentialRHE: number;
+    potentialRaw: number;
+    currentDensity: number;
+    scanIdx: number;
+    slopeSign: number; // +1 if rising, -1 if falling
+  }[] = [];
+
+  for (let i = 0; i < data.length - 1; i++) {
+    const p1 = data[i];
+    const p2 = data[i + 1];
+    const j1 = Math.abs(p1.currentDensity);
+    const j2 = Math.abs(p2.currentDensity);
+
+    // Check if the current interval [j1, j2] crosses absTarget
+    if ((j1 <= absTarget && j2 >= absTarget) || (j1 >= absTarget && j2 <= absTarget)) {
+      if (Math.abs(j2 - j1) < 1e-12) {
+        rawCrossings.push({
+          eta: Math.round(p1.overpotential * 10) / 10,
+          potentialRHE: Math.round(p1.potentialRHE * 1000) / 1000,
+          potentialRaw: Math.round(p1.rawE * 10000) / 10000,
+          currentDensity: targetJ,
+          scanIdx: i,
+          slopeSign: 1,
+        });
+        continue;
+      }
+
+      const t = Math.max(0, Math.min(1, (absTarget - j1) / (j2 - j1)));
+      const eta = p1.overpotential + t * (p2.overpotential - p1.overpotential);
+      const potentialRHE = p1.potentialRHE + t * (p2.potentialRHE - p1.potentialRHE);
+      const potentialRaw = p1.rawE + t * (p2.rawE - p1.rawE);
+      const slopeSign = j2 >= j1 ? 1 : -1;
+
+      rawCrossings.push({
+        eta: Math.round(eta * 10) / 10,
+        potentialRHE: Math.round(potentialRHE * 1000) / 1000,
+        potentialRaw: Math.round(potentialRaw * 10000) / 10000,
+        currentDensity: targetJ,
+        scanIdx: i,
+        slopeSign,
+      });
+    }
+  }
+
+  // Fallback: If instrument stopped just shy of target (e.g. 9.85 - 9.99 mA/cm² when target was 10)
+  if (rawCrossings.length === 0 && maxJ >= absTarget * 0.96 && maxJ < absTarget) {
+    const lastIdx = data.length - 1;
+    const p1 = data[lastIdx - 1];
+    const p2 = data[lastIdx];
+    const j1 = Math.abs(p1.currentDensity);
+    const j2 = Math.abs(p2.currentDensity);
+    if (j2 > j1) {
+      const t = (absTarget - j1) / (j2 - j1);
+      if (t >= 1.0 && t <= 1.08) {
+        const eta = p1.overpotential + t * (p2.overpotential - p1.overpotential);
+        const potentialRHE = p1.potentialRHE + t * (p2.potentialRHE - p1.potentialRHE);
+        const potentialRaw = p1.rawE + t * (p2.rawE - p1.rawE);
+        rawCrossings.push({
+          eta: Math.round(eta * 10) / 10,
+          potentialRHE: Math.round(potentialRHE * 1000) / 1000,
+          potentialRaw: Math.round(potentialRaw * 10000) / 10000,
+          currentDensity: targetJ,
+          scanIdx: lastIdx,
+          slopeSign: 1,
+        });
+      }
+    }
+  }
+
+  // Debounce consecutive crossings within 3 scan steps or within 4 mV
+  const distinctPoints: typeof rawCrossings = [];
+  for (const c of rawCrossings) {
+    const last = distinctPoints[distinctPoints.length - 1];
+    if (last && (c.scanIdx - last.scanIdx <= 3 || Math.abs(c.eta - last.eta) < 4.0)) {
+      last.eta = Math.round(((last.eta + c.eta) / 2) * 10) / 10;
+      last.potentialRHE = Math.round(((last.potentialRHE + c.potentialRHE) / 2) * 1000) / 1000;
+      last.potentialRaw = Math.round(((last.potentialRaw + c.potentialRaw) / 2) * 10000) / 10000;
+    } else {
+      distinctPoints.push({ ...c });
+    }
+  }
+
+  // Sort distinct points ascending by overpotential
+  distinctPoints.sort((a, b) => a.eta - b.eta);
+
+  if (distinctPoints.length === 0) {
+    return [];
+  }
+
+  // Assign intuitive tags and labels (A, B, C... or 1, 2, 3...)
+  if (distinctPoints.length === 1) {
+    return [{
+      eta: distinctPoints[0].eta,
+      potentialRHE: distinctPoints[0].potentialRHE,
+      potentialRaw: distinctPoints[0].potentialRaw,
+      currentDensity: targetJ,
+      label: `Point 1 (${distinctPoints[0].eta} mV)`,
+      tag: '1',
+      pointType: 'general',
+      index: 0,
+    }];
+  }
+
+  if (distinctPoints.length === 2) {
+    return [
+      {
+        eta: distinctPoints[0].eta,
+        potentialRHE: distinctPoints[0].potentialRHE,
+        potentialRaw: distinctPoints[0].potentialRaw,
+        currentDensity: targetJ,
+        label: `Point A (산화 피크 상승부/1차: ${distinctPoints[0].eta} mV)`,
+        tag: 'A',
+        pointType: 'redox_rise',
+        index: 0,
+      },
+      {
+        eta: distinctPoints[1].eta,
+        potentialRHE: distinctPoints[1].potentialRHE,
+        potentialRaw: distinctPoints[1].potentialRaw,
+        currentDensity: targetJ,
+        label: `Point B (본 촉매 반응 지속 영역: ${distinctPoints[1].eta} mV)`,
+        tag: 'B',
+        pointType: 'catalytic',
+        index: 1,
+      },
+    ];
+  }
+
+  // 3 or more points (e.g. NiFe-LDH at 5 mA/cm²):
+  // Point A: 산화 피크 상승부 교차점
+  // Point B: 산화 피크 하강부 교차점
+  // Point C: 본 촉매 반응 지속 영역
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  return distinctPoints.map((pt, idx) => {
+    const isFirst = idx === 0;
+    const isLast = idx === distinctPoints.length - 1;
+    const tag = alphabet[idx] || `${idx + 1}`;
+    let label = `Point ${tag} (${idx + 1}차: ${pt.eta} mV)`;
+    let pointType: OverpotentialPoint['pointType'] = 'general';
+
+    if (isFirst) {
+      label = `Point ${tag}: 산화 피크 상승부 교차점 (${pt.eta} mV)`;
+      pointType = 'redox_rise';
+    } else if (isLast) {
+      label = `Point ${tag}: 본 촉매 반응 지속 영역 (${pt.eta} mV)`;
+      pointType = 'catalytic';
+    } else {
+      label = `Point ${tag}: 산화 피크 하강부 교차점 (${pt.eta} mV)`;
+      pointType = 'redox_fall';
+    }
+
+    return {
+      eta: pt.eta,
+      potentialRHE: pt.potentialRHE,
+      potentialRaw: pt.potentialRaw,
+      currentDensity: targetJ,
+      label,
+      tag,
+      pointType,
+      index: idx,
+    };
+  });
+}
+
+/**
+ * Calculates primary overpotential at targetJ (the sustained catalytic reaction branch).
  */
 export function calculateInterpolatedEta(
   data: DataPoint[],
   targetJ: number,
   reactionType: ReactionType
 ): number | null {
-  if (!data || data.length < 2) return null;
-
-  const absTarget = Math.abs(targetJ);
-
-  // 1. Sort points by overpotential ascending
-  const sortedData = [...data].sort((a, b) => a.overpotential - b.overpotential);
-
-  // 2. Identify all upward crossing candidates where current rises through absTarget
-  interface CrossingCandidate {
-    index: number;
-    eta: number;
-    subsequentMinJ: number;
-    isSustained: boolean;
-  }
-
-  const upwardCrossings: CrossingCandidate[] = [];
-
-  for (let i = 0; i < sortedData.length - 1; i++) {
-    const p1 = sortedData[i];
-    const p2 = sortedData[i + 1];
-    const j1 = Math.abs(p1.currentDensity);
-    const j2 = Math.abs(p2.currentDensity);
-
-    // Upward crossing: current increases across targetJ
-    if (j1 <= absTarget && j2 >= absTarget && j2 > j1) {
-      let interpolatedEta = p1.overpotential;
-      if (Math.abs(j2 - j1) > 1e-9) {
-        const t = (absTarget - j1) / (j2 - j1);
-        interpolatedEta = p1.overpotential + t * (p2.overpotential - p1.overpotential);
-      }
-
-      // Check subsequent points to see if current dips back down (oxidation peak hump) or stays sustained
-      let subsequentMin = j2;
-      let dipsBackDown = false;
-
-      // Look ahead up to 30 points or until the end of scan
-      const lookAheadEnd = Math.min(sortedData.length, i + 35);
-      for (let k = i + 1; k < lookAheadEnd; k++) {
-        const nextJ = Math.abs(sortedData[k].currentDensity);
-        if (nextJ < subsequentMin) {
-          subsequentMin = nextJ;
-        }
-        // If current drops below 80% of targetJ or drops by more than 2 mA/cm2, it's a pre-catalytic redox peak/spike
-        if (nextJ < absTarget * 0.82 || (nextJ < absTarget - 2.0 && absTarget >= 5)) {
-          dipsBackDown = true;
-        }
-      }
-
-      upwardCrossings.push({
-        index: i,
-        eta: interpolatedEta,
-        subsequentMinJ: subsequentMin,
-        isSustained: !dipsBackDown,
-      });
-    }
-  }
-
-  // 3. Choose the true catalytic crossing:
-  // Prefer the sustained upward crossing (the actual catalytic onset/branch)
-  if (upwardCrossings.length > 0) {
-    // Find the last crossing that is sustained, or simply the last upward crossing (since catalytic OER is at the high-potential end)
-    const sustained = upwardCrossings.filter(c => c.isSustained);
-    if (sustained.length > 0) {
-      const best = sustained[sustained.length - 1];
-      return Math.round(best.eta * 10) / 10;
-    }
-    // If none were strictly sustained, pick the latest crossing (which represents the real catalytic reaction curve rather than early peaks)
-    const lastCrossing = upwardCrossings[upwardCrossings.length - 1];
-    return Math.round(lastCrossing.eta * 10) / 10;
-  }
-
-  // 4. Fallback: Any crossing (downward/upward)
-  for (let i = sortedData.length - 2; i >= 0; i--) {
-    const p1 = sortedData[i];
-    const p2 = sortedData[i + 1];
-    const j1 = Math.abs(p1.currentDensity);
-    const j2 = Math.abs(p2.currentDensity);
-
-    if ((j1 <= absTarget && j2 >= absTarget) || (j1 >= absTarget && j2 <= absTarget)) {
-      if (Math.abs(j2 - j1) < 1e-9) {
-        return Math.round(p1.overpotential * 10) / 10;
-      }
-      const t = (absTarget - j1) / (j2 - j1);
-      const interpolatedEta = p1.overpotential + t * (p2.overpotential - p1.overpotential);
-      return Math.round(interpolatedEta * 10) / 10;
-    }
-  }
-
-  // 5. If target current density was not reached
-  const maxJ = Math.max(...sortedData.map(p => Math.abs(p.currentDensity)));
-  if (maxJ < absTarget * 0.8) {
-    return null;
-  }
-
-  // Closest point near the top of the curve
-  let closest = sortedData[sortedData.length - 1];
-  let minDiff = Infinity;
-  for (let i = sortedData.length - 1; i >= Math.max(0, sortedData.length - 20); i--) {
-    const p = sortedData[i];
-    const diff = Math.abs(Math.abs(p.currentDensity) - absTarget);
-    if (diff < minDiff) {
-      minDiff = diff;
-      closest = p;
-    }
-  }
-  return Math.round(closest.overpotential * 10) / 10;
+  const points = calculateAllInterpolatedEtas(data, targetJ, reactionType);
+  if (points.length === 0) return null;
+  // Return the sustained catalytic reaction branch (Point B / last point)
+  return points[points.length - 1].eta;
 }
 
 /**
@@ -321,13 +411,27 @@ export function calculateMetrics(
   loadingMgCm2?: number,
   ecsaCm2?: number
 ): SampleMetrics {
-  const eta10 = calculateInterpolatedEta(data, 10, config.reactionType);
-  const eta50 = calculateInterpolatedEta(data, 50, config.reactionType);
-  const eta100 = calculateInterpolatedEta(data, 100, config.reactionType);
+  const points10 = calculateAllInterpolatedEtas(data, 10, config.reactionType);
+  const points50 = calculateAllInterpolatedEtas(data, 50, config.reactionType);
+  const points100 = calculateAllInterpolatedEtas(data, 100, config.reactionType);
+
+  const eta10 = points10.length > 0 ? points10[points10.length - 1].eta : calculateInterpolatedEta(data, 10, config.reactionType);
+  const eta50 = points50.length > 0 ? points50[points50.length - 1].eta : calculateInterpolatedEta(data, 50, config.reactionType);
+  const eta100 = points100.length > 0 ? points100[points100.length - 1].eta : calculateInterpolatedEta(data, 100, config.reactionType);
+
+  const allEta10 = points10.map(p => p.eta);
+  const allEta50 = points50.map(p => p.eta);
+  const allEta100 = points100.map(p => p.eta);
 
   const customTargetEtas: { [targetJ: number]: number | null } = {};
+  const customTargetAllEtas: { [targetJ: number]: number[] } = {};
+  const customTargetPoints: { [targetJ: number]: OverpotentialPoint[] } = {};
+
   for (const target of config.targetCurrentDensities) {
-    customTargetEtas[target] = calculateInterpolatedEta(data, target, config.reactionType);
+    const pts = calculateAllInterpolatedEtas(data, target, config.reactionType);
+    customTargetPoints[target] = pts;
+    customTargetAllEtas[target] = pts.map(p => p.eta);
+    customTargetEtas[target] = pts.length > 0 ? pts[pts.length - 1].eta : null;
   }
 
   const tafelFit = calculateTafelFit(data, roi.minLogJ, roi.maxLogJ);
@@ -353,7 +457,12 @@ export function calculateMetrics(
     eta10,
     eta50,
     eta100,
+    allEta10,
+    allEta50,
+    allEta100,
     customTargetEtas,
+    customTargetAllEtas,
+    customTargetPoints,
     tafelSlope: tafelFit.tafelSlope,
     rSquared: tafelFit.rSquared,
     intercept: tafelFit.intercept,
@@ -369,9 +478,16 @@ export function calculateMetrics(
 export function recalculateSample(
   sample: Sample,
   config: ExperimentConfig,
-  rawPoints?: { rawE: number; rawI: number }[]
+  rawPoints?: { rawE: number; rawI: number; alreadyRHE?: boolean; isCurrentDensity?: boolean }[]
 ): Sample {
-  const pointsToUse = rawPoints || sample.data.map(d => ({ rawE: d.rawE, rawI: d.rawI }));
+  const pointsToUse =
+    rawPoints ||
+    sample.data.map(d => ({
+      rawE: d.rawE,
+      rawI: d.rawI,
+      alreadyRHE: d.alreadyRHE,
+      isCurrentDensity: d.isCurrentDensity,
+    }));
   const data = calculateDataPoints(pointsToUse, config, sample.ruResistance, sample.irCompensationPercent);
   const metrics = calculateMetrics(data, sample.tafelRoi, config, sample.loadingMgCm2, sample.ecsaCm2);
 

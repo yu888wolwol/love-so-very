@@ -10,7 +10,7 @@ export const DEFAULT_CONFIG: ExperimentConfig = {
   defaultRu: 2.5,
   defaultCompensation: 85,
   geometricArea: 0.071, // 3mm glassy carbon disk (0.0707 cm2)
-  targetCurrentDensities: [10, 50, 100],
+  targetCurrentDensities: [5, 10, 50, 100],
   showIRCompensated: true,
 };
 
@@ -35,7 +35,8 @@ function generateSyntheticLSVCurve(
   tafelSlope_Vdec: number, // Tafel slope in V/dec (e.g. 0.042 V/dec = 42 mV/dec)
   j0_mA: number, // Exchange current density (mA/cm2)
   massTransferLimit_mA: number = 180,
-  noiseAmp: number = 0.02
+  noiseAmp: number = 0.02,
+  redoxPeak?: { peakV: number; height_mA: number; widthV: number }
 ): { rawE: number; rawI: number }[] {
   const points: { rawE: number; rawI: number }[] = [];
   const area = 0.071; // cm2
@@ -45,12 +46,13 @@ function generateSyntheticLSVCurve(
   // So E_meas = E_RHE - 1.03824
   const offset = 0.210 + 0.05916 * 14.0;
 
-  // Sweep from E_RHE = 1.10V to 1.80V
+  // Sweep from E_RHE = 1.15V to 1.78V
   for (let eRHE = 1.15; eRHE <= 1.78; eRHE += 0.005) {
     const overpotential = eRHE - 1.230; // V
 
-    let j = 0;
-    if (overpotential > 0.05) {
+    let j = 0.04;
+    // OER catalytic reaction turns on around onsetV
+    if (eRHE >= onsetV - 0.04) {
       // Kinetic current via Tafel relation: j_kin = j0 * 10^(overpotential / tafelSlope)
       const expTerm = overpotential / tafelSlope_Vdec;
       const j_kin = j0_mA * Math.pow(10, Math.min(6, expTerm));
@@ -59,6 +61,12 @@ function generateSyntheticLSVCurve(
     } else {
       // Capacitive background near onset
       j = 0.05 + 0.02 * Math.sin(eRHE * 20);
+    }
+
+    // Add pre-catalytic redox oxidation peak (e.g. Ni2+/Ni3+ redox couple in NiFe catalysts)
+    if (redoxPeak) {
+      const peakVal = redoxPeak.height_mA * Math.exp(-Math.pow((eRHE - redoxPeak.peakV) / redoxPeak.widthV, 2));
+      j += peakVal;
     }
 
     // Add subtle experimental noise
@@ -77,10 +85,18 @@ function generateSyntheticLSVCurve(
 }
 
 export function getPresetSamples(config: ExperimentConfig = DEFAULT_CONFIG): Sample[] {
+  // Sample A (NiFe-LDH) has a classic pre-catalytic Ni oxidation peak at 1.365V (peaking ~11.8 mA/cm2) with catalytic onset at 1.45V
   const rawSampleA = generateSyntheticLSVCurve(1.48, 0.0423, 1e-4, 210, 0.015);
   const rawSampleB = generateSyntheticLSVCurve(1.50, 0.0551, 8e-5, 190, 0.02);
   const rawSampleC = generateSyntheticLSVCurve(1.46, 0.0385, 1.5e-4, 230, 0.018);
-  const rawSampleD = generateSyntheticLSVCurve(1.43, 0.0318, 3.2e-4, 260, 0.015);
+  const rawSampleD_NiFe = generateSyntheticLSVCurve(
+    1.45,
+    0.0390,
+    2.4e-4,
+    260,
+    0.012,
+    { peakV: 1.365, height_mA: 11.6, widthV: 0.026 }
+  );
 
   const makeSample = (
     id: string,
@@ -115,7 +131,7 @@ export function getPresetSamples(config: ExperimentConfig = DEFAULT_CONFIG): Sam
   };
 
   return [
-    makeSample('sample-1', 'Sample_A', 'NiFe-LDH Nanosheets', '#2563EB', rawSampleD, 2.35, 0.25, 2.40),
+    makeSample('sample-1', 'Sample_A', 'NiFe-LDH Nanosheets', '#2563EB', rawSampleD_NiFe, 2.35, 0.25, 2.40),
     makeSample('sample-2', 'Sample_B', 'Co3O4 Nanowires', '#DC2626', rawSampleC, 2.60, 0.28, 1.65),
     makeSample('sample-3', 'Sample_C', 'Fe-N-C SAC', '#059669', rawSampleB, 2.45, 0.35, 2.10),
     makeSample('sample-4', 'Sample_D', 'RuO2 Benchmark', '#7C3AED', rawSampleA, 2.50, 0.20, 1.80),
