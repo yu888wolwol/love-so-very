@@ -10,8 +10,6 @@ export interface DataPoint {
   currentDensity: number; // current density j (mA/cm2)
   overpotential: number;  // overpotential eta (mV)
   logJ: number;          // log10(|j|)
-  alreadyRHE?: boolean;
-  isCurrentDensity?: boolean;
 }
 
 export interface OverpotentialPoint {

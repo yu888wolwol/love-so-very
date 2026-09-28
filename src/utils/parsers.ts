@@ -4,182 +4,22 @@ export interface ParsedRawData {
   fileName: string;
   sampleName: string;
   fileType: 'csv' | 'xlsx' | 'txt';
-  points: { rawE: number; rawI: number; alreadyRHE?: boolean; isCurrentDensity?: boolean }[];
+  points: { rawE: number; rawI: number }[];
   detectedColumns: {
     potentialColName: string;
     currentColName: string;
     potentialUnit: string;
     currentUnit: string;
-    alreadyRHE?: boolean;
-    isCurrentDensity?: boolean;
   };
   metadata?: Record<string, string>;
 }
 
-export function isIgnoreColumn(name: string): boolean {
-  if (!name) return false;
-  const n = name.trim().toLowerCase();
-  return (
-    n.startsWith('time') ||
-    n.includes('time/s') ||
-    n.includes('time (s)') ||
-    n.includes('t/s') ||
-    n.includes('t (s)') ||
-    n === 't' ||
-    n === 'time' ||
-    n.includes('시간') ||
-    n.includes('cycle') ||
-    n.includes('사이클') ||
-    n.includes('index') ||
-    n.includes('point') ||
-    n.includes('step') ||
-    n.includes('freq') ||
-    n.includes('phase') ||
-    n.includes("z'") ||
-    n.includes("z''") ||
-    n.includes('re(z)') ||
-    n.includes('im(z)') ||
-    n.includes('control') ||
-    n.includes('mode') ||
-    n.includes('q-q0') ||
-    n.includes('charge') ||
-    n.includes('temp') ||
-    n.includes('ox/red')
-  );
-}
-
-export function isPotentialColumn(name: string): boolean {
-  if (!name) return false;
-  const n = name.trim().toLowerCase();
-  if (isIgnoreColumn(n)) return false;
-  return (
-    n.includes('ewe') ||
-    n.includes('potential') ||
-    n.includes('volt') ||
-    n.includes('v vs') ||
-    n.includes('vs.') ||
-    n.includes('vs ') ||
-    n.includes('e vs') ||
-    n.includes('e (v') ||
-    n.includes('e(v') ||
-    n.includes('e [v') ||
-    n.includes('e[v') ||
-    n.includes('e/v') ||
-    n.includes('e / v') ||
-    n.includes('e_we') ||
-    n.includes('v_meas') ||
-    n.includes('vf') ||
-    n.includes('e_rhe') ||
-    n.includes('erhe') ||
-    n.includes('v_rhe') ||
-    n.includes('vrhe') ||
-    n.includes('we(1).potential') ||
-    n.includes('전위') ||
-    n.includes('전압') ||
-    n === 'v' ||
-    n === 'e' ||
-    n === 'u' ||
-    n === 'u/v' ||
-    n === 'u (v)' ||
-    n === 'u [v]' ||
-    n.startsWith('e_') ||
-    n.startsWith('v_') ||
-    n.endsWith('(v)') ||
-    n.endsWith('[v]') ||
-    n.endsWith('/v')
-  );
-}
-
-export function isCurrentDensityColumn(name: string): boolean {
-  if (!name) return false;
-  const n = name.trim().toLowerCase();
-  return (
-    n.includes('cm2') ||
-    n.includes('cm-2') ||
-    n.includes('cm^-2') ||
-    n.includes('cm²') ||
-    n.includes('cm⁻²') ||
-    n.includes('density') ||
-    n.includes('전류밀도') ||
-    n.includes('전류 밀도') ||
-    n.startsWith('j') ||
-    n.includes('(j)') ||
-    n.includes('[j]') ||
-    n.includes('/j') ||
-    n.includes('j(') ||
-    n.includes('j[') ||
-    n.includes('j/') ||
-    n.includes('j ') ||
-    n.includes('j_') ||
-    n.includes('area')
-  );
-}
-
-export function isCurrentColumn(name: string): boolean {
-  if (!name) return false;
-  const n = name.trim().toLowerCase();
-  if (isIgnoreColumn(n)) return false;
-  return (
-    n.includes('<i') ||
-    n.includes('i/ma') ||
-    n.includes('i / ma') ||
-    n.includes('i(ma') ||
-    n.includes('i (ma') ||
-    n.includes('i[ma') ||
-    n.includes('i [ma') ||
-    n.includes('i/a') ||
-    n.includes('i / a') ||
-    n.includes('i(a') ||
-    n.includes('i (a') ||
-    n.includes('i[a') ||
-    n.includes('i [a') ||
-    n.includes('current') ||
-    n.includes('i_meas') ||
-    n.includes('j (ma') ||
-    n.includes('j(ma') ||
-    n.includes('j [ma') ||
-    n.includes('j[ma') ||
-    n.includes('j / ma') ||
-    n.includes('j/ma') ||
-    n.includes('density') ||
-    n.includes('i (µa)') ||
-    n.includes('i(µa)') ||
-    n.includes('i (ua)') ||
-    n.includes('i(ua)') ||
-    n.includes('i [ua]') ||
-    n.includes('i[ua]') ||
-    n.includes('we(1).current') ||
-    n.includes('im') ||
-    n.includes('전류') ||
-    n.includes('전류밀도') ||
-    n === 'i' ||
-    n === 'j' ||
-    n === '<i/ma>' ||
-    n === '<i/a>' ||
-    n === 'ma' ||
-    n === 'a' ||
-    n.endsWith('(a)') ||
-    n.endsWith('[a]') ||
-    n.endsWith('/a') ||
-    n.endsWith(' a') ||
-    n.endsWith('(ma)') ||
-    n.endsWith('[ma]') ||
-    n.endsWith('/ma') ||
-    n.endsWith(' ma') ||
-    n.endsWith('(ua)') ||
-    n.endsWith('[ua]') ||
-    n.endsWith('/ua') ||
-    n.endsWith(' ua') ||
-    n.includes('cm2') ||
-    n.includes('cm-2') ||
-    n.includes('cm^-2') ||
-    n.includes('cm²')
-  );
-}
-
 /**
  * Intelligent file parser that automatically extracts ONE or MULTIPLE electrochemical datasets
- * from CSV, XLSX, XLS, TXT, TSV, or DAT files.
+ * from CSV, XLSX, XLS, or TXT files.
+ *
+ * Each dataset (graph/curve) is formed by a (X = Potential, Y = Current) pair of columns.
+ * For example, 10 columns containing 5 pairs of (Ewe/V, <I>/mA) will generate exactly 5 distinct graphs.
  */
 export async function parseElectrochemicalFile(file: File): Promise<ParsedRawData[]> {
   const fileName = file.name;
@@ -194,238 +34,162 @@ export async function parseElectrochemicalFile(file: File): Promise<ParsedRawDat
   }
 }
 
-interface ColumnPairDef {
-  potCol: number;
-  curCol: number;
-  startRow: number;
-  potHeader: string;
-  curHeader: string;
-  sampleName: string;
-}
-
 /**
- * Unified detector that inspects a 2D grid of rows and columns to find valid (Potential, Current) pairs.
+ * Parses Excel files (.xlsx, .xls) that contain single or MULTIPLE LSV/CV dataset column pairs.
+ * (e.g. Col 1: X1 (Ewe/V), Col 2: Y1 (<I>/mA), Col 3: X2 (Ewe/V), Col 4: Y2 (<I>/mA), ... -> 5 graphs)
  */
-function detectDatasetPairs(rawRows: any[][], defaultSampleName: string): ColumnPairDef[] {
+async function parseExcelFile(file: File, defaultSampleName: string): Promise<ParsedRawData[]> {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: 'array' });
+  const firstSheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[firstSheetName];
+
+  // Read all cells with empty string defaults
+  const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+  if (!rawRows || rawRows.length === 0) {
+    throw new Error('엑셀 파일에 데이터가 비어있습니다.');
+  }
+
+  // Calculate maximum column index
   let maxCols = 0;
-  for (let r = 0; r < Math.min(150, rawRows.length); r++) {
+  for (let r = 0; r < rawRows.length; r++) {
     if (Array.isArray(rawRows[r])) {
       maxCols = Math.max(maxCols, rawRows[r].length);
     }
   }
 
   if (maxCols < 2) {
-    throw new Error('파일에 최소 2개 이상의 열이 필요합니다.');
+    throw new Error('엑셀 파일에 최소 2개 이상의 유효한 열(전위 X축, 전류 Y축)이 필요합니다.');
   }
 
-  // 1. Scan first 100 rows for explicit header row containing potential & current columns
-  let headerRow = -1;
-  let potColIndices: number[] = [];
-  let curColIndices: number[] = [];
-
-  for (let r = 0; r < Math.min(100, rawRows.length); r++) {
-    const row = rawRows[r];
-    if (!Array.isArray(row)) continue;
-
-    const rowPots: number[] = [];
-    const rowCurs: number[] = [];
-
-    for (let c = 0; c < row.length; c++) {
-      const cell = String(row[c] || '').trim();
-      if (!cell) continue;
-      if (isPotentialColumn(cell)) rowPots.push(c);
-      else if (isCurrentColumn(cell)) rowCurs.push(c);
-    }
-
-    if (rowPots.length > 0 && rowCurs.length > 0) {
-      headerRow = r;
-      potColIndices = rowPots;
-      curColIndices = rowCurs;
-      break;
-    }
+  interface DetectedPair {
+    potCol: number;
+    curCol: number;
+    startRow: number;
+    potHeader: string;
+    curHeader: string;
+    sampleName: string;
   }
 
-  const pairs: ColumnPairDef[] = [];
+  const detectedPairs: DetectedPair[] = [];
 
-  if (headerRow !== -1 && potColIndices.length > 0 && curColIndices.length > 0) {
-    const headerCells = rawRows[headerRow];
+  // Step 1: Scan for column pairs (X: Potential, Y: Current)
+  let c = 0;
+  while (c < maxCols) {
+    // Check if column `c` and `c + 1` form a valid (X, Y) pair
+    let potCol = -1;
+    let curCol = -1;
+    let headerRow = -1;
+    let potHeader = 'Ewe/V';
+    let curHeader = '<I>/mA';
+    let label = '';
 
-    // Case A: Exactly 1 potential and 1 current (e.g. [time, Ewe, <I>])
-    if (potColIndices.length === 1 && curColIndices.length === 1) {
-      const pCol = potColIndices[0];
-      const cCol = curColIndices[0];
-      let sampleTitle = '';
+    // Check rows 0 to 15 for header keywords
+    for (let r = 0; r < Math.min(15, rawRows.length); r++) {
+      const cellTextA = String(rawRows[r]?.[c] || '').trim();
+      const cellTextB = String(rawRows[r]?.[c + 1] || '').trim();
 
-      // Check rows before header for sample title
-      for (let pr = 0; pr < headerRow; pr++) {
-        const titleCandidate = String(rawRows[pr]?.[pCol] || rawRows[pr]?.[cCol] || rawRows[pr]?.[0] || '').trim();
-        if (titleCandidate && titleCandidate.length > 1 && !isPotentialColumn(titleCandidate) && !isIgnoreColumn(titleCandidate)) {
-          sampleTitle = cleanSampleNameFromPath(titleCandidate);
+      if (isPotentialColumn(cellTextA) && isCurrentColumn(cellTextB)) {
+        potCol = c;
+        curCol = c + 1;
+        headerRow = r;
+        potHeader = cellTextA;
+        curHeader = cellTextB;
+        break;
+      }
+    }
+
+    // If explicit header matched:
+    if (potCol !== -1 && curCol !== -1) {
+      // Find sample title in row 0 or row before header
+      for (let pr = 0; pr <= headerRow - 1; pr++) {
+        const titleCandidate = String(rawRows[pr]?.[potCol] || rawRows[pr]?.[curCol] || '').trim();
+        if (titleCandidate && !isPotentialColumn(titleCandidate) && titleCandidate.length > 1) {
+          label = cleanSampleNameFromPath(titleCandidate);
           break;
         }
       }
 
-      pairs.push({
-        potCol: pCol,
-        curCol: cCol,
+      if (!label) {
+        label = `Sample ${detectedPairs.length + 1}`;
+      }
+
+      detectedPairs.push({
+        potCol,
+        curCol,
         startRow: headerRow + 1,
-        potHeader: String(headerCells[pCol] || 'Potential (V)'),
-        curHeader: String(headerCells[cCol] || 'Current (mA)'),
-        sampleName: sampleTitle || defaultSampleName,
+        potHeader,
+        curHeader,
+        sampleName: label,
       });
-    }
-    // Case B: 1 potential column and multiple current columns (e.g. [E, Cycle1_I, Cycle2_I, Cycle3_I])
-    else if (potColIndices.length === 1 && curColIndices.length > 1) {
-      const pCol = potColIndices[0];
-      for (let i = 0; i < curColIndices.length; i++) {
-        const cCol = curColIndices[i];
-        const cHeader = String(headerCells[cCol] || `Cycle ${i + 1}`);
-        let name = `${defaultSampleName}_${cleanSampleNameFromPath(cHeader)}`;
-        if (name === defaultSampleName) name = `${defaultSampleName} (${i + 1})`;
 
-        pairs.push({
-          potCol: pCol,
-          curCol: cCol,
-          startRow: headerRow + 1,
-          potHeader: String(headerCells[pCol] || 'Potential (V)'),
-          curHeader: cHeader,
-          sampleName: name,
-        });
+      // Move to next pair (advance by 2 columns)
+      c += 2;
+      continue;
+    }
+
+    // If no explicit header, check if columns c and c+1 contain numeric data
+    let numericRowCount = 0;
+    let firstNumericRow = -1;
+    for (let r = 0; r < Math.min(25, rawRows.length); r++) {
+      const valA = parseFloat(String(rawRows[r]?.[c] || '').replace(/,/g, ''));
+      const valB = parseFloat(String(rawRows[r]?.[c + 1] || '').replace(/,/g, ''));
+
+      if (!isNaN(valA) && !isNaN(valB) && isFinite(valA) && isFinite(valB)) {
+        if (firstNumericRow === -1) firstNumericRow = r;
+        numericRowCount++;
       }
     }
-    // Case C: Multiple potential and multiple current columns (e.g. [E1, I1, E2, I2] or [time1, E1, I1, time2, E2, I2])
-    else {
-      // Pair each potential column with the closest current column
-      const usedCurCols = new Set<number>();
-      for (let i = 0; i < potColIndices.length; i++) {
-        const pCol = potColIndices[i];
-        // find best matching current column (prefer immediately following pCol)
-        let bestCurCol = -1;
-        let minDiff = 9999;
-        for (const cCol of curColIndices) {
-          if (usedCurCols.has(cCol)) continue;
-          const diff = cCol - pCol;
-          if (diff > 0 && diff < minDiff) {
-            minDiff = diff;
-            bestCurCol = cCol;
-          }
-        }
-        if (bestCurCol === -1) {
-          // fallback to any unused current col
-          for (const cCol of curColIndices) {
-            if (!usedCurCols.has(cCol)) {
-              bestCurCol = cCol;
-              break;
-            }
-          }
-        }
 
-        if (bestCurCol !== -1) {
-          usedCurCols.add(bestCurCol);
-          let title = '';
-          for (let pr = 0; pr < headerRow; pr++) {
-            const cand = String(rawRows[pr]?.[pCol] || rawRows[pr]?.[bestCurCol] || '').trim();
-            if (cand && cand.length > 1 && !isPotentialColumn(cand)) {
-              title = cleanSampleNameFromPath(cand);
-              break;
-            }
-          }
-          if (!title) title = `Sample ${pairs.length + 1}`;
-
-          pairs.push({
-            potCol: pCol,
-            curCol: bestCurCol,
-            startRow: headerRow + 1,
-            potHeader: String(headerCells[pCol] || 'Potential (V)'),
-            curHeader: String(headerCells[bestCurCol] || 'Current (mA)'),
-            sampleName: title,
-          });
-        }
-      }
-    }
-  }
-
-  // Fallback: If no explicit header matched
-  if (pairs.length === 0) {
-    // Check first 30 rows for numeric columns
-    const numericCols: { col: number; sampleVals: number[]; isTimeLike: boolean }[] = [];
-    let firstNumRow = -1;
-
-    for (let c = 0; c < maxCols; c++) {
-      const vals: number[] = [];
-      for (let r = 0; r < Math.min(30, rawRows.length); r++) {
-        const v = parseFloat(String(rawRows[r]?.[c] || '').replace(/,/g, ''));
-        if (!isNaN(v) && isFinite(v)) {
-          vals.push(v);
-          if (firstNumRow === -1) firstNumRow = r;
-        }
-      }
-      if (vals.length >= 3) {
-        // check if strictly increasing like time or index
-        let isIncreasing = true;
-        for (let k = 1; k < vals.length; k++) {
-          if (vals[k] <= vals[k - 1]) {
-            isIncreasing = false;
+    if (numericRowCount >= 3 && firstNumericRow !== -1) {
+      // Extract label from row before numeric data
+      if (firstNumericRow > 0) {
+        for (let pr = 0; pr < firstNumericRow; pr++) {
+          const titleCandidate = String(rawRows[pr]?.[c] || rawRows[pr]?.[c + 1] || '').trim();
+          if (titleCandidate && titleCandidate.length > 1 && !isPotentialColumn(titleCandidate)) {
+            label = cleanSampleNameFromPath(titleCandidate);
             break;
           }
         }
-        const isTimeLike = isIncreasing && vals[0] >= 0 && (vals[vals.length - 1] - vals[0] > 0.5);
-        numericCols.push({ col: c, sampleVals: vals, isTimeLike });
-      }
-    }
-
-    // Filter out time-like columns if there are at least 2 non-time columns
-    let candidateCols = numericCols.filter(nc => !nc.isTimeLike);
-    if (candidateCols.length < 2) {
-      candidateCols = numericCols;
-    }
-
-    if (candidateCols.length >= 2) {
-      let pCol = candidateCols[0].col;
-      let cCol = candidateCols[1].col;
-
-      // Check values to determine which is potential (typically 0.5 - 2.5 V)
-      const avg0 = Math.abs(candidateCols[0].sampleVals.reduce((a, b) => a + b, 0) / candidateCols[0].sampleVals.length);
-      const avg1 = Math.abs(candidateCols[1].sampleVals.reduce((a, b) => a + b, 0) / candidateCols[1].sampleVals.length);
-
-      if (avg0 < 0.2 && avg1 >= 0.5 && avg1 <= 3.0) {
-        // Col 0 is small current (A), Col 1 is potential (V) -> swap
-        pCol = candidateCols[1].col;
-        cCol = candidateCols[0].col;
       }
 
-      pairs.push({
-        potCol: pCol,
-        curCol: cCol,
-        startRow: firstNumRow > 0 ? firstNumRow : 0,
+      if (!label) {
+        label = `Sample ${detectedPairs.length + 1}`;
+      }
+
+      detectedPairs.push({
+        potCol: c,
+        curCol: c + 1,
+        startRow: firstNumericRow,
         potHeader: 'Potential (V)',
         curHeader: 'Current (mA)',
-        sampleName: defaultSampleName,
+        sampleName: label,
       });
+
+      c += 2;
+      continue;
     }
+
+    // If this column is not a pair, advance by 1
+    c += 1;
   }
 
-  if (pairs.length === 0) {
-    throw new Error('유효한 전위/전류 수치 데이터 열을 파일에서 찾을 수 없습니다.');
+  if (detectedPairs.length === 0) {
+    throw new Error('유효한 전위(X축) / 전류(Y축) 수치 데이터 열 쌍을 찾지 못했습니다.');
   }
 
-  return pairs;
-}
-
-/**
- * Extracts and unit-normalizes datasets from pairs
- */
-function extractDatasetsFromPairs(
-  rawRows: any[][],
-  pairs: ColumnPairDef[],
-  fileName: string,
-  fileType: 'csv' | 'xlsx' | 'txt'
-): ParsedRawData[] {
+  // Step 2: Extract data points for each detected pair (each pair = 1 graph)
   const results: ParsedRawData[] = [];
 
-  for (let i = 0; i < pairs.length; i++) {
-    const pair = pairs[i];
-    const rawPointsList: { rawE: number; rawI: number }[] = [];
+  for (let i = 0; i < detectedPairs.length; i++) {
+    const pair = detectedPairs[i];
+    const points: { rawE: number; rawI: number }[] = [];
+
+    const potUnit = pair.potHeader.toLowerCase().includes('mv') ? 'mV' : 'V';
+    let curUnit = 'mA';
+    const curLower = pair.curHeader.toLowerCase();
+    if (curLower.includes('ua') || curLower.includes('µa')) curUnit = 'uA';
+    else if (curLower.includes('(a)') || curLower.endsWith('/a') || curLower === 'i (a)' || curLower === 'a') curUnit = 'A';
 
     for (let r = pair.startRow; r < rawRows.length; r++) {
       const row = rawRows[r];
@@ -439,152 +203,66 @@ function extractDatasetsFromPairs(
       const rawValI = typeof cellB === 'number' ? cellB : parseFloat(String(cellB).replace(/,/g, ''));
 
       if (!isNaN(rawValE) && !isNaN(rawValI) && isFinite(rawValE) && isFinite(rawValI)) {
-        rawPointsList.push({ rawE: rawValE, rawI: rawValI });
+        let normE = potUnit === 'mV' ? rawValE / 1000 : rawValE;
+        let normI = rawValI;
+        if (curUnit === 'A') normI = rawValI * 1000;
+        else if (curUnit === 'uA') normI = rawValI / 1000;
+
+        points.push({ rawE: normE, rawI: normI });
       }
     }
 
-    if (rawPointsList.length >= 3) {
-      const pLower = pair.potHeader.toLowerCase();
-      const cLower = pair.curHeader.toLowerCase();
-
-      // Potential unit detection
-      const isAlreadyRHE = pLower.includes('rhe');
-      let potUnit = pLower.includes('mv') || (!pLower.includes('v') && rawPointsList.some(p => Math.abs(p.rawE) > 60)) ? 'mV' : 'V';
-
-      // Current unit detection
-      let curUnit = 'mA';
-      let isCurrentDensity = isCurrentDensityColumn(cLower);
-
-      if (cLower.includes('ua') || cLower.includes('µa') || cLower.includes('microamp')) {
-        curUnit = 'uA';
-      } else if (
-        cLower.includes('(a)') ||
-        cLower.includes('[a]') ||
-        cLower.includes('/a') ||
-        cLower.includes('current/a') ||
-        cLower.includes('current (a') ||
-        cLower.includes('current [a') ||
-        cLower.includes('i (a') ||
-        cLower.includes('i [a') ||
-        cLower.includes('amp') ||
-        cLower === 'a' ||
-        cLower.endsWith(' a') ||
-        cLower.endsWith('(a)') ||
-        cLower.endsWith('[a]') ||
-        cLower === 'im'
-      ) {
-        curUnit = 'A';
-      } else {
-        // Value-based check: working electrode currents in Amperes are usually small (< 0.05) and not explicitly marked mA
-        const maxAbsI = Math.max(...rawPointsList.map(p => Math.abs(p.rawI)));
-        if (maxAbsI > 0 && maxAbsI < 0.05 && !cLower.includes('ma')) {
-          curUnit = 'A';
-        }
+    if (points.length >= 3) {
+      let finalName = pair.sampleName;
+      if (!finalName || finalName === 'Sample') {
+        finalName = detectedPairs.length > 1 ? `Sample ${i + 1}` : defaultSampleName;
       }
 
-      // Normalize points: E to V, I to mA (or maintain mA/cm2 directly)
-      const points = rawPointsList.map(p => {
-        let normE = potUnit === 'mV' ? p.rawE / 1000 : p.rawE;
-        let normI = p.rawI;
-
-        if (curUnit === 'A') {
-          normI = p.rawI * 1000;
-        } else if (curUnit === 'uA') {
-          normI = p.rawI / 1000;
-        } else {
-          normI = p.rawI;
-        }
-
-        return {
-          rawE: normE,
-          rawI: normI,
-          alreadyRHE: isAlreadyRHE,
-          isCurrentDensity,
-        };
-      });
-
-      // Apply despike filter
-      const cleaned = despikeAndCleanPoints(points);
-
       results.push({
-        fileName,
-        sampleName: pair.sampleName,
-        fileType,
-        points: cleaned,
+        fileName: file.name,
+        sampleName: finalName,
+        fileType: 'xlsx',
+        points,
         detectedColumns: {
           potentialColName: pair.potHeader,
           currentColName: pair.curHeader,
-          potentialUnit: isAlreadyRHE ? 'V vs RHE' : potUnit,
-          currentUnit: isCurrentDensity ? 'mA/cm2' : curUnit,
-          alreadyRHE: isAlreadyRHE,
-          isCurrentDensity,
+          potentialUnit: potUnit,
+          currentUnit: curUnit,
         },
       });
     }
+  }
+
+  if (results.length === 0) {
+    throw new Error('유효한 측정 데이터 행을 읽지 못했습니다.');
   }
 
   return results;
 }
 
 /**
- * Parses Excel files (.xlsx, .xls) across all sheets
- */
-async function parseExcelFile(file: File, defaultSampleName: string): Promise<ParsedRawData[]> {
-  const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: 'array' });
-  const allResults: ParsedRawData[] = [];
-
-  for (const sheetName of workbook.SheetNames) {
-    const worksheet = workbook.Sheets[sheetName];
-    if (!worksheet) continue;
-
-    const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-    if (!rawRows || rawRows.length < 2) continue;
-
-    try {
-      const sheetSampleName =
-        workbook.SheetNames.length > 1
-          ? `${defaultSampleName}_${sheetName.replace(/\s+/g, '_')}`
-          : defaultSampleName;
-      const pairs = detectDatasetPairs(rawRows, sheetSampleName);
-      const results = extractDatasetsFromPairs(rawRows, pairs, file.name, 'xlsx');
-      allResults.push(...results);
-    } catch {
-      // Ignore sheets without valid electrochemical data pairs
-    }
-  }
-
-  if (allResults.length === 0) {
-    throw new Error('유효한 전위/전류 측정 데이터를 엑셀 파일의 시트에서 찾지 못했습니다.');
-  }
-
-  return allResults;
-}
-
-/**
- * Parses Delimited Text Files (.csv, .tsv, .txt, .dat)
+ * Parses Delimited Text Files (.csv, .tsv, .txt, .dat) with support for multi-column pairwise datasets
  */
 async function parseDelimitedTextFile(file: File, defaultSampleName: string): Promise<ParsedRawData[]> {
   const text = await file.text();
   const lines = text.split(/\r?\n/);
   let delimiter = ',';
 
-  // Sample delimiter detection across non-comment lines
-  for (const line of lines.slice(0, 50)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('//')) continue;
-    if (trimmed.includes('\t')) {
+  // Sample delimiter detection
+  for (const line of lines.slice(0, 30)) {
+    if (line.includes('\t')) {
       delimiter = '\t';
       break;
-    } else if (trimmed.includes(';') && (trimmed.match(/;/g)?.length || 0) > (trimmed.match(/,/g)?.length || 0)) {
+    } else if (line.includes(';') && (line.match(/;/g)?.length || 0) > (line.match(/,/g)?.length || 0)) {
       delimiter = ';';
       break;
-    } else if (trimmed.includes(',')) {
+    } else if (line.includes(',')) {
       delimiter = ',';
       break;
     }
   }
 
+  // Parse lines into 2D grid
   const parsedRows: string[][] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -594,10 +272,6 @@ async function parseDelimitedTextFile(file: File, defaultSampleName: string): Pr
       parts = line.split(',').map(c => c.trim().replace(/^["']|["']$/g, ''));
     } else if (parts.length === 1 && line.includes('\t')) {
       parts = line.split('\t').map(c => c.trim().replace(/^["']|["']$/g, ''));
-    } else if (parts.length === 1 && line.includes(';')) {
-      parts = line.split(';').map(c => c.trim().replace(/^["']|["']$/g, ''));
-    } else if (parts.length === 1 && /\s{2,}/.test(line)) {
-      parts = line.split(/\s{2,}/).map(c => c.trim());
     } else if (parts.length === 1) {
       parts = line.split(/\s+/).map(c => c.trim());
     }
@@ -608,44 +282,167 @@ async function parseDelimitedTextFile(file: File, defaultSampleName: string): Pr
     throw new Error(`[${file.name}] 파일에 데이터가 없습니다.`);
   }
 
-  const pairs = detectDatasetPairs(parsedRows, defaultSampleName);
-  const results = extractDatasetsFromPairs(parsedRows, pairs, file.name, 'csv');
+  const maxCols = Math.max(...parsedRows.slice(0, 20).map(r => r.length));
 
-  if (results.length === 0) {
-    throw new Error(`[${file.name}] 파일에서 유효한 전위/전류 데이터를 읽지 못했습니다.`);
+  interface DetectedTextPair {
+    potCol: number;
+    curCol: number;
+    startRow: number;
+    label: string;
+  }
+
+  const pairs: DetectedTextPair[] = [];
+  let c = 0;
+
+  while (c < maxCols) {
+    let potCol = -1;
+    let curCol = -1;
+    let headerRow = -1;
+    let label = '';
+
+    for (let r = 0; r < Math.min(15, parsedRows.length); r++) {
+      const cellA = String(parsedRows[r]?.[c] || '').trim();
+      const cellB = String(parsedRows[r]?.[c + 1] || '').trim();
+
+      if (isPotentialColumn(cellA) && isCurrentColumn(cellB)) {
+        potCol = c;
+        curCol = c + 1;
+        headerRow = r;
+        break;
+      }
+    }
+
+    if (potCol !== -1 && curCol !== -1) {
+      for (let pr = 0; pr < headerRow; pr++) {
+        const titleCand = String(parsedRows[pr]?.[potCol] || parsedRows[pr]?.[curCol] || '').trim();
+        if (titleCand && !isPotentialColumn(titleCand)) {
+          label = cleanSampleNameFromPath(titleCand);
+          break;
+        }
+      }
+      if (!label) label = `Sample ${pairs.length + 1}`;
+
+      pairs.push({
+        potCol,
+        curCol,
+        startRow: headerRow + 1,
+        label,
+      });
+
+      c += 2;
+      continue;
+    }
+
+    // Numeric check fallback
+    let numCount = 0;
+    let firstNumRow = -1;
+    for (let r = 0; r < Math.min(25, parsedRows.length); r++) {
+      const vA = parseFloat(parsedRows[r]?.[c]);
+      const vB = parseFloat(parsedRows[r]?.[c + 1]);
+      if (!isNaN(vA) && !isNaN(vB)) {
+        if (firstNumRow === -1) firstNumRow = r;
+        numCount++;
+      }
+    }
+
+    if (numCount >= 3 && firstNumRow !== -1) {
+      if (firstNumRow > 0) {
+        label = cleanSampleNameFromPath(String(parsedRows[firstNumRow - 1]?.[c] || ''));
+      }
+      if (!label) label = `Sample ${pairs.length + 1}`;
+
+      pairs.push({
+        potCol: c,
+        curCol: c + 1,
+        startRow: firstNumRow,
+        label,
+      });
+
+      c += 2;
+      continue;
+    }
+
+    c += 1;
+  }
+
+  if (pairs.length === 0) {
+    // Single fallback
+    pairs.push({
+      potCol: 0,
+      curCol: 1,
+      startRow: 0,
+      label: defaultSampleName,
+    });
+  }
+
+  const results: ParsedRawData[] = [];
+  for (let i = 0; i < pairs.length; i++) {
+    const pair = pairs[i];
+    const points: { rawE: number; rawI: number }[] = [];
+
+    for (let r = pair.startRow; r < parsedRows.length; r++) {
+      const rawE = parseFloat(parsedRows[r]?.[pair.potCol]);
+      const rawI = parseFloat(parsedRows[r]?.[pair.curCol]);
+      if (!isNaN(rawE) && !isNaN(rawI) && isFinite(rawE) && isFinite(rawI)) {
+        points.push({ rawE, rawI });
+      }
+    }
+
+    if (points.length >= 3) {
+      results.push({
+        fileName: file.name,
+        sampleName: pair.label || `Sample ${i + 1}`,
+        fileType: 'csv',
+        points,
+        detectedColumns: {
+          potentialColName: 'Potential (V)',
+          currentColName: 'Current (mA)',
+          potentialUnit: 'V',
+          currentUnit: 'mA',
+        },
+      });
+    }
   }
 
   return results;
 }
 
 /**
- * Intelligent filter to remove abnormal electrical spike glitches
+ * Intelligent filter to remove abnormal electrical spike glitches (단발성 튀는 노이즈 아티팩트 제거)
+ * and sort points monotonically.
  */
 export function despikeAndCleanPoints(
-  rawPoints: { rawE: number; rawI: number; alreadyRHE?: boolean; isCurrentDensity?: boolean }[]
-): { rawE: number; rawI: number; alreadyRHE?: boolean; isCurrentDensity?: boolean }[] {
+  rawPoints: { rawE: number; rawI: number }[]
+): { rawE: number; rawI: number }[] {
   if (!rawPoints || rawPoints.length < 5) return rawPoints;
 
-  const despiked: typeof rawPoints = [];
-  for (let i = 0; i < rawPoints.length; i++) {
-    const cur = rawPoints[i];
+  // 1. Sort ascending by potential
+  const sorted = [...rawPoints].sort((a, b) => a.rawE - b.rawE);
 
-    if (i > 0 && i < rawPoints.length - 1) {
-      const prev = rawPoints[i - 1];
-      const next = rawPoints[i + 1];
+  // 2. Remove isolated sharp spikes (points that suddenly jump far beyond neighbors and return)
+  const despiked: { rawE: number; rawI: number }[] = [];
+  
+  for (let i = 0; i < sorted.length; i++) {
+    const cur = sorted[i];
 
+    if (i > 0 && i < sorted.length - 1) {
+      const prev = sorted[i - 1];
+      const next = sorted[i + 1];
+      
       const expectedNeighborAvg = (prev.rawI + next.rawI) / 2;
       const baselineDiff = Math.abs(prev.rawI - next.rawI);
       const spikeDev = Math.abs(cur.rawI - expectedNeighborAvg);
 
+      // Condition for sudden sharp isolated spike (e.g. 3.9 -> 161 -> 3.9)
       const isExtremeSpike =
-        spikeDev > 5.0 &&
-        spikeDev > Math.max(0.5, baselineDiff * 4.0) &&
+        spikeDev > 3.0 && // Jump greater than 3 mA
+        spikeDev > Math.max(0.2, baselineDiff * 3.5) &&
         Math.sign(cur.rawI - prev.rawI) === Math.sign(cur.rawI - next.rawI);
 
       if (isExtremeSpike) {
+        // Replace spike with interpolated average of neighbors
         despiked.push({
-          ...cur,
+          rawE: cur.rawE,
           rawI: expectedNeighborAvg,
         });
         continue;
@@ -655,15 +452,80 @@ export function despikeAndCleanPoints(
     despiked.push(cur);
   }
 
-  return despiked;
+  // 3. Deduplicate points with identical potentials (< 0.0001 V)
+  const result: { rawE: number; rawI: number }[] = [];
+  for (let i = 0; i < despiked.length; i++) {
+    if (
+      result.length === 0 ||
+      Math.abs(despiked[i].rawE - result[result.length - 1].rawE) > 1e-4
+    ) {
+      result.push(despiked[i]);
+    }
+  }
+
+  return result.length >= 3 ? result : despiked;
 }
 
+/**
+ * Cleans sample name from full file path or messy string
+ * e.g. "F:\활성\250211\whw새 폴더 (3)\250211_OER_S_500_3HR_2번팁 1M_02_CV_C01.mpr"
+ * -> "250211_OER_S_500_3HR_2번팁 1M"
+ */
 export function cleanSampleNameFromPath(pathStr: string): string {
   if (!pathStr) return 'Sample';
+
+  // If path contains backslash or slash, get last portion
   let clean = pathStr.split(/[\/\\]/).pop() || pathStr;
+
+  // Remove common extensions
   clean = clean.replace(/\.(mpr|xlsx|xls|csv|txt|dat|dta)$/i, '');
+
+  // Remove EC-Lab / BioLogic trailing channel & cycle tags like "_01_LSV_C01", "_02_CV_C01", "_C01"
   clean = clean.replace(/_\d{2}_(CV|LSV|CA|CP)(_C\d{2})?$/i, '');
   clean = clean.replace(/_C\d{2}$/i, '');
+
+  // If still contains messy path fragments, extract meaningful part
   clean = clean.trim();
   return clean || 'Sample';
+}
+
+function isPotentialColumn(name: string): boolean {
+  if (!name) return false;
+  const n = name.toLowerCase();
+  return (
+    n.includes('ewe') ||
+    n.includes('potential') ||
+    n.includes('volt') ||
+    n.includes('e (v') ||
+    n.includes('e/v') ||
+    n.includes('v vs') ||
+    n.includes('e_we') ||
+    n.includes('v_meas') ||
+    n === 'v' ||
+    n === 'e' ||
+    n === 'u'
+  );
+}
+
+function isCurrentColumn(name: string): boolean {
+  if (!name) return false;
+  const n = name.toLowerCase();
+  return (
+    n.includes('<i') ||
+    n.includes('i/ma') ||
+    n.includes('i (ma') ||
+    n.includes('i (a') ||
+    n.includes('current') ||
+    n.includes('i_meas') ||
+    n.includes('j (ma') ||
+    n.includes('density') ||
+    n.includes('i (µa)') ||
+    n.includes('i (ua)') ||
+    n === 'i' ||
+    n === 'j' ||
+    n === '<i/ma>' ||
+    n === '<i/a>' ||
+    n === 'ma' ||
+    n === 'a'
+  );
 }

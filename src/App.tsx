@@ -77,7 +77,7 @@ export function App() {
     const newSamples: Sample[] = [];
 
     // Check if currently only default dummy presets are present
-    const isOnlyDefaultPresets = samples.every(s => s.fileType === 'preset' || ['sample-1', 'sample-2', 'sample-3', 'sample-4'].includes(s.id));
+    const isOnlyDefaultPresets = samples.every(s => s.id.startsWith('sample-oer-') || s.id.startsWith('sample-orr-'));
 
     for (const file of files) {
       try {
