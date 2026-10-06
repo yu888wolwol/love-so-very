@@ -68,7 +68,7 @@ export function App() {
     showToast(`${reactionType} 반응 연구 프리셋 데이터셋이 로드되었습니다.`);
   };
 
-  // Handle Files Upload (.csv, .xlsx, .mpr, .txt)
+  // Handle Files Upload (.xlsx, .xls, .csv, .txt, .dat)
   const handleFilesUpload = async (fileList: FileList | File[]) => {
     const files = Array.from(fileList);
     if (files.length === 0) return;
@@ -77,13 +77,24 @@ export function App() {
     const newSamples: Sample[] = [];
 
     // Check if currently only default dummy presets are present
-    const isOnlyDefaultPresets = samples.every(s => s.id.startsWith('sample-oer-') || s.id.startsWith('sample-orr-'));
+    const isOnlyDefaultPresets = samples.every(s => s.fileType === 'preset' || ['sample-12', 'sample-13', 'sample-14'].includes(s.id));
 
     for (const file of files) {
+      if (file.type.startsWith('image/') || /\.(png|jpe?g|webp|bmp)$/i.test(file.name)) {
+        showToast('엑셀(.xlsx, .xls) 또는 CSV 형식의 측정 데이터 파일을 업로드해 주세요.', 'error');
+        continue;
+      }
+
       try {
         const parsedArray = await parseElectrochemicalFile(file);
         for (const parsed of parsedArray) {
-          const data = calculateDataPoints(parsed.points, config, config.defaultRu, config.defaultCompensation);
+          const data = calculateDataPoints(
+            parsed.points,
+            config,
+            config.defaultRu,
+            config.defaultCompensation,
+            parsed.isAlreadyDensity
+          );
           const tafelRoi = autoDetectTafelRoi(data);
           const metrics = calculateMetrics(data, tafelRoi, config);
           const colorIndex = (isOnlyDefaultPresets ? newSamples.length : (samples.length + newSamples.length)) % SAMPLE_COLORS.length;
@@ -97,6 +108,7 @@ export function App() {
             visible: true,
             fileName: parsed.fileName,
             fileType: parsed.fileType,
+            isAlreadyDensity: parsed.isAlreadyDensity,
             ruResistance: config.defaultRu,
             irCompensationPercent: config.defaultCompensation,
             tafelRoi,
@@ -115,7 +127,6 @@ export function App() {
 
     if (newSamples.length > 0) {
       if (isOnlyDefaultPresets) {
-        // Replace initial dummy presets with user's uploaded real datasets
         setSamples(newSamples);
       } else {
         setSamples(prev => [...prev, ...newSamples]);
@@ -148,7 +159,7 @@ export function App() {
         j0: 1.5e-4,
         intercept: 250,
       },
-      data: SAMPLE_PRESETS[0].data.map(d => {
+      data: (samples[0] || SAMPLE_PRESETS[0]).data.map(d => {
         const j = d.currentDensity * 1.1;
         return {
           ...d,
@@ -183,13 +194,25 @@ export function App() {
     );
   };
 
-  // Delete sample
+  // Delete single sample
   const handleDeleteSample = (id: string) => {
     setSamples(prev => prev.filter(s => s.id !== id));
     if (selectedSampleId === id) {
       const remaining = samples.filter(s => s.id !== id);
       if (remaining.length > 0) setSelectedSampleId(remaining[0].id);
+      else setSelectedSampleId('');
     }
+  };
+
+  // Batch delete multiple samples
+  const handleDeleteMultipleSamples = (ids: string[]) => {
+    const idSet = new Set(ids);
+    const remaining = samples.filter(s => !idSet.has(s.id));
+    setSamples(remaining);
+    if (idSet.has(selectedSampleId)) {
+      setSelectedSampleId(remaining[0]?.id || '');
+    }
+    showToast(`${ids.length}개의 그래프 데이터셋이 삭제되었습니다.`);
   };
 
   // Tafel ROI update for selected sample
@@ -273,6 +296,7 @@ export function App() {
           onToggleSampleVisibility={handleToggleSampleVisibility}
           onUpdateSample={handleUpdateSample}
           onDeleteSample={handleDeleteSample}
+          onDeleteMultipleSamples={handleDeleteMultipleSamples}
           onFilesUpload={handleFilesUpload}
           onAddBlankSample={handleAddBlankSample}
           isOpenMobile={isSidebarOpenMobile}
@@ -289,7 +313,7 @@ export function App() {
                 config={config}
                 selectedSampleId={selectedSampleId}
                 onSelectSample={setSelectedSampleId}
-                height={360}
+                height={380}
               />
             </div>
           )}

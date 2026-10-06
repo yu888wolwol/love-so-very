@@ -33,7 +33,8 @@ export function calculateDataPoints(
   rawPoints: { rawE: number; rawI: number }[],
   config: ExperimentConfig,
   ruResistance: number,
-  irCompensationPercent: number
+  irCompensationPercent: number,
+  isAlreadyDensity: boolean = false
 ): DataPoint[] {
   const eRef = getRefPotential(config.referenceElectrode, config.customEref);
   const eRev = getRevPotential(config.reactionType, config.customErev);
@@ -42,9 +43,16 @@ export function calculateDataPoints(
   const compFraction = Math.max(0, Math.min(1, irCompensationPercent / 100));
 
   return rawPoints.map(pt => {
-    // Current in mA
-    const i_mA = pt.rawI;
-    const currentDensity = i_mA / area; // mA/cm2
+    let i_mA: number;
+    let currentDensity: number;
+
+    if (isAlreadyDensity) {
+      currentDensity = pt.rawI; // Column was already current density in mA/cm2!
+      i_mA = currentDensity * area;
+    } else {
+      i_mA = pt.rawI;
+      currentDensity = i_mA / area; // mA/cm2
+    }
 
     // iR drop: (i in A) * Ru = (i_mA * 1e-3) * Ru
     const iR_drop_total = (i_mA * 1e-3) * ruResistance; // Volts
@@ -144,11 +152,11 @@ export function calculateAllInterpolatedEtas(
     }
   }
 
-  // 2. Debounce noise flutter: merge crossings that are within 3 consecutive scan steps OR within 5 mV
+  // 2. Debounce immediate noise flutter: merge crossings that are within 2 consecutive scan steps AND within 2 mV
   const distinctPoints: typeof rawCrossings = [];
   for (const c of rawCrossings) {
     const last = distinctPoints[distinctPoints.length - 1];
-    if (last && (Math.abs(c.eta - last.eta) < 5.0 || c.scanIdx - last.scanIdx <= 2)) {
+    if (last && (Math.abs(c.eta - last.eta) < 2.0 && c.scanIdx - last.scanIdx <= 2)) {
       last.eta = Math.round(((last.eta + c.eta) / 2) * 10) / 10;
       last.potentialRHE = Math.round(((last.potentialRHE + c.potentialRHE) / 2) * 1000) / 1000;
       last.potentialRaw = Math.round(((last.potentialRaw + c.potentialRaw) / 2) * 10000) / 10000;
@@ -164,15 +172,15 @@ export function calculateAllInterpolatedEtas(
     return [];
   }
 
-  // 4. Assign intuitive tags and labels (A, B, C... or 1, 2, 3...)
+  // 4. Assign intuitive tags and labels (Pt 1, Pt A, Pt B, Pt C...) matching graph markers
   if (distinctPoints.length === 1) {
     return [{
       eta: distinctPoints[0].eta,
       potentialRHE: distinctPoints[0].potentialRHE,
       potentialRaw: distinctPoints[0].potentialRaw,
       currentDensity: targetJ,
-      label: `Point 1 (${distinctPoints[0].eta} mV)`,
-      tag: '1',
+      label: `Pt 1 (E: ${distinctPoints[0].potentialRHE.toFixed(3)} V, η: ${distinctPoints[0].eta} mV)`,
+      tag: 'Pt 1',
       pointType: 'general',
       index: 0,
     }];
@@ -185,8 +193,8 @@ export function calculateAllInterpolatedEtas(
         potentialRHE: distinctPoints[0].potentialRHE,
         potentialRaw: distinctPoints[0].potentialRaw,
         currentDensity: targetJ,
-        label: `Point A (산화 피크/1차: ${distinctPoints[0].eta} mV)`,
-        tag: 'A',
+        label: `Pt A (산화 피크/1차: ${distinctPoints[0].potentialRHE.toFixed(3)} V, ${distinctPoints[0].eta} mV)`,
+        tag: 'Pt A',
         pointType: 'redox_rise',
         index: 0,
       },
@@ -195,31 +203,32 @@ export function calculateAllInterpolatedEtas(
         potentialRHE: distinctPoints[1].potentialRHE,
         potentialRaw: distinctPoints[1].potentialRaw,
         currentDensity: targetJ,
-        label: `Point B (촉매 반응/2차: ${distinctPoints[1].eta} mV)`,
-        tag: 'B',
+        label: `Pt B (촉매 반응/2차: ${distinctPoints[1].potentialRHE.toFixed(3)} V, ${distinctPoints[1].eta} mV)`,
+        tag: 'Pt B',
         pointType: 'catalytic',
         index: 1,
       },
     ];
   }
 
-  // 3 or more points
+  // 3 or more points (e.g. redox peak rise Pt A, fall Pt B, catalytic sustained Pt C)
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   return distinctPoints.map((pt, idx) => {
     const isFirst = idx === 0;
     const isLast = idx === distinctPoints.length - 1;
-    const tag = alphabet[idx] || `${idx + 1}`;
-    let label = `Point ${tag} (${idx + 1}차: ${pt.eta} mV)`;
+    const letter = alphabet[idx] || `${idx + 1}`;
+    const tag = `Pt ${letter}`;
+    let label = `${tag} (${idx + 1}차: ${pt.potentialRHE.toFixed(3)} V, ${pt.eta} mV)`;
     let pointType: OverpotentialPoint['pointType'] = 'general';
 
     if (isFirst) {
-      label = `Point ${tag} (산화 피크 상승부/1차: ${pt.eta} mV)`;
+      label = `${tag} (산화 피크 상승부: ${pt.potentialRHE.toFixed(3)} V, ${pt.eta} mV)`;
       pointType = 'redox_rise';
     } else if (isLast) {
-      label = `Point ${tag} (촉매 주 반응 지속영역: ${pt.eta} mV)`;
+      label = `${tag} (촉매 주 반응: ${pt.potentialRHE.toFixed(3)} V, ${pt.eta} mV)`;
       pointType = 'catalytic';
     } else if (pt.slopeSign < 0) {
-      label = `Point ${tag} (피크 하강부: ${pt.eta} mV)`;
+      label = `${tag} (피크 하강부: ${pt.potentialRHE.toFixed(3)} V, ${pt.eta} mV)`;
       pointType = 'redox_fall';
     }
 
@@ -437,8 +446,25 @@ export function recalculateSample(
   rawPoints?: { rawE: number; rawI: number }[]
 ): Sample {
   const pointsToUse = rawPoints || sample.data.map(d => ({ rawE: d.rawE, rawI: d.rawI }));
-  const data = calculateDataPoints(pointsToUse, config, sample.ruResistance, sample.irCompensationPercent);
+  const data = calculateDataPoints(
+    pointsToUse,
+    config,
+    sample.ruResistance,
+    sample.irCompensationPercent,
+    sample.isAlreadyDensity
+  );
   const metrics = calculateMetrics(data, sample.tafelRoi, config, sample.loadingMgCm2, sample.ecsaCm2);
+
+  // Attach sample identity to points
+  if (metrics.customTargetPoints) {
+    for (const j in metrics.customTargetPoints) {
+      metrics.customTargetPoints[j] = metrics.customTargetPoints[j].map(pt => ({
+        ...pt,
+        sampleId: sample.id,
+        sampleName: sample.name,
+      }));
+    }
+  }
 
   return {
     ...sample,

@@ -173,16 +173,19 @@ export const SummaryTable: React.FC<SummaryTableProps> = ({
               <th className="py-2.5 px-3 font-semibold">Catalyst</th>
               <th className="py-2.5 px-3 font-semibold">Ru (Ω)</th>
               
-              {/* Dynamic Target j Overpotential Columns */}
+              {/* Dynamic Target j Overpotential & Potential Columns */}
               {targetCurrents.map((targetJ, idx) => (
                 <th
                   key={`th-target-eta-${targetJ}`}
                   className={`py-2.5 px-3 font-semibold ${
                     idx === 0 ? 'text-blue-700 font-bold' : ''
                   }`}
-                  title={`${targetJ} mA/cm²에서의 과전압 (η_${targetJ})`}
+                  title={`${targetJ} mA/cm² 교차 지점의 과전압(η) 및 전위(V vs RHE)`}
                 >
-                  η_{targetJ} (mV)
+                  <div className="flex flex-col">
+                    <span>η_{targetJ}</span>
+                    <span className="text-[9px] font-normal text-slate-400 normal-case">mV (V_RHE)</span>
+                  </div>
                 </th>
               ))}
 
@@ -287,7 +290,7 @@ export const SummaryTable: React.FC<SummaryTableProps> = ({
                             <div className="flex items-baseline gap-1">
                               <span>{points[0].eta}</span>
                               <span className="text-[10px] text-slate-500 font-normal">mV</span>
-                              <span className="text-[10px] text-slate-400 font-normal hidden xl:inline">
+                              <span className="text-[10px] text-blue-600/90 font-medium">
                                 ({points[0].potentialRHE.toFixed(3)} V)
                               </span>
                             </div>

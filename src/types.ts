@@ -21,6 +21,8 @@ export interface OverpotentialPoint {
   tag: string;            // "A", "B", "C" or "1", "2"
   pointType: 'redox_rise' | 'redox_fall' | 'catalytic' | 'general';
   index: number;          // sequence index
+  sampleId?: string;
+  sampleName?: string;
 }
 
 export interface SampleMetrics {
@@ -46,12 +48,14 @@ export interface Sample {
   name: string;
   catalystName: string;
   color: string;
+  lineStyle?: 'solid' | 'dashed' | 'dashdot';
   visible: boolean;
   fileName: string;
   fileType: 'csv' | 'xlsx' | 'mpr' | 'txt' | 'preset';
   data: DataPoint[];
   ruResistance: number;          // Ru solution resistance (Ohms)
   irCompensationPercent: number;  // Compensation % (e.g. 85 or 100)
+  isAlreadyDensity?: boolean;    // True if raw data was already current density (mA/cm2)
   loadingMgCm2?: number;         // catalyst mass loading (mg/cm2)
   ecsaCm2?: number;              // ECSA (cm2)
   tafelRoi: {

@@ -69,7 +69,7 @@ Please generate a professional, structured scientific research report in Korean 
 Use rigorous electrochemical terms (e.g. Volmer-Heyrovsky-Tafel, RDS, iR-drop, 교환전류밀도 j0, 고전류 안정성 등). Format with clear headings, bullet points, and high readability.`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
+        model: 'gemini-3.8-flash',
         contents: prompt,
         config: {
           temperature: 0.3,
